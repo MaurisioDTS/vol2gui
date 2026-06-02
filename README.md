@@ -3,6 +3,9 @@
 simple gui wrapper (pyqt5) for the **volatility 2.6 standalone** binary, aimed
 at memory forensics on ram images.
 
+<img width="1207" height="710" alt="image" src="https://github.com/user-attachments/assets/15fcba58-7434-4e40-b8d2-530ea63c3da9" />
+
+
 (este readme en ingles porque me lo quiero tomar más en serio)
 
 ## features
