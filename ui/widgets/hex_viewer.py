@@ -1,0 +1,170 @@
+"""Visor reutilizable de contenido binario en hexadecimal y texto.
+
+Componente independiente pensado para reutilizarse en cualquier sección del
+programa que necesite inspeccionar bytes en crudo (explorador de ficheros,
+artefactos, búsqueda, etc.). Acepta los datos de tres formas:
+
+  - ``load_bytes(data, title)``: a partir de un ``bytes`` ya en memoria.
+  - ``load_file(path, title)``: leyendo un fichero del disco.
+  - ``clear()``: vacía el visor.
+
+Ofrece tres modos de visualización: hexadecimal (estilo ``hexdump``), texto
+(extracción de cadenas imprimibles, estilo ``strings``) y ambos a la vez.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import List, Optional
+
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+# Límite de bytes a renderizar para no congelar la interfaz con ficheros enormes.
+_DEFAULT_MAX_BYTES = 1024 * 1024  # 1 MiB
+
+_MODE_HEX = 0
+_MODE_STRINGS = 1
+_MODE_BOTH = 2
+
+
+class HexViewer(QWidget):
+    """Muestra contenido binario en hexadecimal y/o como cadenas de texto."""
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        max_bytes: int = _DEFAULT_MAX_BYTES,
+        min_string_len: int = 4,
+    ) -> None:
+        super().__init__(parent)
+        self._max_bytes = max_bytes
+        self._min_string_len = min_string_len
+        self._data: bytes = b""
+        self._title: str = ""
+        self._truncated = False
+        self._build_ui()
+
+    # ------------------------------------------------------------------ UI --
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+
+        top = QHBoxLayout()
+        self._title_label = QLabel("Sin contenido")
+        self._title_label.setStyleSheet("color:#4ec9b0;")
+        self._title_label.setWordWrap(True)
+        top.addWidget(self._title_label, 1)
+
+        top.addWidget(QLabel("Vista:"))
+        self._mode = QComboBox()
+        self._mode.addItems(["Hexadecimal", "Texto (strings)", "Ambos"])
+        self._mode.currentIndexChanged.connect(lambda _idx: self._render())
+        top.addWidget(self._mode)
+        layout.addLayout(top)
+
+        self._editor = QPlainTextEdit()
+        self._editor.setReadOnly(True)
+        self._editor.setLineWrapMode(QPlainTextEdit.NoWrap)
+        font = QFont("monospace")
+        font.setStyleHint(QFont.Monospace)
+        self._editor.setFont(font)
+        layout.addWidget(self._editor, 1)
+
+    # -------------------------------------------------------------- API ----
+    def clear(self) -> None:
+        """Vacía el visor."""
+        self._data = b""
+        self._title = ""
+        self._truncated = False
+        self._title_label.setText("Sin contenido")
+        self._editor.clear()
+
+    def load_bytes(self, data: bytes, title: str = "") -> None:
+        """Carga bytes ya disponibles en memoria."""
+        data = data or b""
+        self._truncated = len(data) > self._max_bytes
+        self._data = data[: self._max_bytes]
+        self._title = title
+        self._update_title()
+        self._render()
+
+    def load_file(self, path: str, title: str = "") -> None:
+        """Carga el contenido de un fichero del disco."""
+        try:
+            with open(path, "rb") as handle:
+                # Lee un byte de más para detectar truncamiento.
+                data = handle.read(self._max_bytes + 1)
+        except OSError as exc:
+            self._data = b""
+            self._truncated = False
+            self._title_label.setText(f"Error al leer: {exc}")
+            self._editor.clear()
+            return
+        self.load_bytes(data, title or os.path.basename(path))
+
+    # -------------------------------------------------------------- render --
+    def _update_title(self) -> None:
+        name = self._title or "(sin nombre)"
+        size = len(self._data)
+        suffix = " (truncado)" if self._truncated else ""
+        self._title_label.setText(f"{name}  -  {size} bytes mostrados{suffix}")
+
+    def _render(self) -> None:
+        mode = self._mode.currentIndex()
+        if mode == _MODE_HEX:
+            text = self._to_hex(self._data)
+        elif mode == _MODE_STRINGS:
+            text = self._to_strings(self._data, self._min_string_len)
+        else:
+            text = (
+                "=== HEXADECIMAL ===\n"
+                + self._to_hex(self._data)
+                + "\n\n=== CADENAS (strings) ===\n"
+                + self._to_strings(self._data, self._min_string_len)
+            )
+        self._editor.setPlainText(text)
+
+    @staticmethod
+    def _to_hex(data: bytes, width: int = 16) -> str:
+        """Genera un volcado hexadecimal clásico con offset, bytes y ASCII."""
+        if not data:
+            return "(vacío)"
+        lines: List[str] = []
+        for offset in range(0, len(data), width):
+            chunk = data[offset : offset + width]
+            hex_cells = [f"{byte:02x}" for byte in chunk]
+            # Separa en dos grupos de 8 para facilitar la lectura.
+            first = " ".join(hex_cells[:8])
+            second = " ".join(hex_cells[8:])
+            hex_part = f"{first}  {second}".rstrip()
+            hex_part = hex_part.ljust(width * 3)
+            ascii_part = "".join(
+                chr(byte) if 32 <= byte < 127 else "." for byte in chunk
+            )
+            lines.append(f"{offset:08x}  {hex_part} |{ascii_part}|")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _to_strings(data: bytes, min_len: int = 4) -> str:
+        """Extrae secuencias de caracteres imprimibles (estilo ``strings``)."""
+        if not data:
+            return "(vacío)"
+        result: List[str] = []
+        current: List[str] = []
+        for byte in data:
+            if 32 <= byte < 127:
+                current.append(chr(byte))
+            else:
+                if len(current) >= min_len:
+                    result.append("".join(current))
+                current = []
+        if len(current) >= min_len:
+            result.append("".join(current))
+        return "\n".join(result) if result else "(sin cadenas imprimibles)"
