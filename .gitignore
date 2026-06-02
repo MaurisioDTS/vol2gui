@@ -1,0 +1,39 @@
+# python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# packaging / builds
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# editors / ide
+.vscode/
+.idea/
+
+# os / filesystem junk
+.DS_Store
+Thumbs.db
+
+# logs / runtime artifacts
+*.log
+audit.log
+
+# exports / reports created by the gui (optional)
+*.csv
+*.json
+*.html
+
