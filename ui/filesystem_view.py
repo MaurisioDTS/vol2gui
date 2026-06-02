@@ -15,6 +15,8 @@ Plugins por SO:
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import Qt
@@ -26,6 +28,8 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSplitter,
+    QStyle,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -35,7 +39,12 @@ from PyQt5.QtWidgets import (
 from core.parser import parse_table
 from core.runner import PluginWorker, VolatilityRunner
 from core.profile import OSType
+from ui.widgets.hex_viewer import HexViewer
 from utils import audit_log
+
+# Columnas del árbol: primero el identificador (offset/inodo), luego el nombre.
+_COL_ID = 0
+_COL_NAME = 1
 
 # Roles de datos en los items del árbol.
 _ROLE_IDENTIFIER = Qt.UserRole + 1  # offset/inodo para extracción
@@ -93,7 +102,10 @@ class FilesystemView(QWidget):
         self._config = _config_for(os_type)
         self._worker: Optional[PluginWorker] = None
         self._dump_workers: List[PluginWorker] = []
+        self._temp_dirs: List[str] = []
         self._loaded = False
+        self._dir_icon = self.style().standardIcon(QStyle.SP_DirIcon)
+        self._file_icon = self.style().standardIcon(QStyle.SP_FileIcon)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -109,6 +121,11 @@ class FilesystemView(QWidget):
         self._filter.textChanged.connect(self._apply_filter)
         controls.addWidget(self._filter, 1)
 
+        self._preview_btn = QPushButton("Visualizar (hex/strings)")
+        self._preview_btn.clicked.connect(self._preview_selected)
+        self._preview_btn.setEnabled(False)
+        controls.addWidget(self._preview_btn)
+
         self._extract_btn = QPushButton("Extraer seleccionado...")
         self._extract_btn.clicked.connect(self._extract_selected)
         self._extract_btn.setEnabled(False)
@@ -117,7 +134,8 @@ class FilesystemView(QWidget):
 
         warn = QLabel(
             "Esta vista NO extrae ficheros automáticamente. Selecciona un fichero "
-            "y pulsa «Extraer» para elegir dónde volcarlo."
+            "y pulsa «Visualizar» para inspeccionarlo (volcado temporal) o «Extraer» "
+            "para elegir dónde volcarlo de forma permanente."
         )
         warn.setWordWrap(True)
         warn.setStyleSheet("color:#d7ba7d;font-size:11px;")
@@ -132,12 +150,21 @@ class FilesystemView(QWidget):
         self._status.setStyleSheet("color:#4ec9b0;")
         layout.addWidget(self._status)
 
+        # Pantalla dividida: árbol a la izquierda, visor hex/strings a la derecha.
+        splitter = QSplitter(Qt.Horizontal)
+
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Nombre", "Identificador (offset/inodo)"])
+        self._tree.setHeaderLabels(["Identificador (offset/inodo)", "Nombre"])
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
-        layout.addWidget(self._tree, 1)
+        splitter.addWidget(self._tree)
+
+        self._viewer = HexViewer()
+        splitter.addWidget(self._viewer)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 4)
+        layout.addWidget(splitter, 1)
 
     # ----------------------------------------------------------------- carga --
     def load(self) -> None:
@@ -198,6 +225,9 @@ class FilesystemView(QWidget):
 
     # ------------------------------------------------------------- árbol -----
     def _build_tree(self, entries: List) -> None:
+        # Desactiva la ordenación mientras se inserta para no reordenar en cada
+        # alta; se reactiva al final ordenando por nombre.
+        self._tree.setSortingEnabled(False)
         self._tree.clear()
         sep = self._config["separator"]
         root_nodes: Dict[str, QTreeWidgetItem] = {}
@@ -219,9 +249,14 @@ class FilesystemView(QWidget):
                 is_last = depth == len(parts) - 1
                 child = self._find_child(parent, part, root_nodes)
                 if child is None:
-                    child = QTreeWidgetItem([part, identifier if is_last else ""])
+                    child = QTreeWidgetItem(
+                        [identifier if is_last else "", part]
+                    )
                     child.setData(0, _ROLE_FULLPATH, accumulated)
                     child.setData(0, _ROLE_IS_FILE, is_last)
+                    child.setIcon(
+                        _COL_NAME, self._file_icon if is_last else self._dir_icon
+                    )
                     if is_last:
                         child.setData(0, _ROLE_IDENTIFIER, identifier)
                     if parent is None:
@@ -229,7 +264,17 @@ class FilesystemView(QWidget):
                         root_nodes[part] = child
                     else:
                         parent.addChild(child)
+                elif not is_last and child.data(0, _ROLE_IS_FILE):
+                    # Un nodo creado como fichero resulta ser también carpeta
+                    # (otra ruta más larga lo contiene): pásalo a directorio.
+                    child.setData(0, _ROLE_IS_FILE, False)
+                    child.setData(0, _ROLE_IDENTIFIER, "")
+                    child.setText(_COL_ID, "")
+                    child.setIcon(_COL_NAME, self._dir_icon)
                 parent = child
+
+        self._tree.setSortingEnabled(True)
+        self._tree.sortByColumn(_COL_NAME, Qt.AscendingOrder)
 
     @staticmethod
     def _find_child(
@@ -241,7 +286,7 @@ class FilesystemView(QWidget):
             return root_nodes.get(name)
         for i in range(parent.childCount()):
             child = parent.child(i)
-            if child.text(0) == name:
+            if child.text(_COL_NAME) == name:
                 return child
         return None
 
@@ -255,7 +300,12 @@ class FilesystemView(QWidget):
         for i in range(parent.childCount()):
             child = parent.child(i)
             child_visible = self._filter_node(child, text)
-            own = (not text) or text in child.text(0).lower()
+            full_path = str(child.data(0, _ROLE_FULLPATH) or "").lower()
+            own = (
+                (not text)
+                or text in child.text(_COL_NAME).lower()
+                or text in full_path
+            )
             visible = child_visible or own
             child.setHidden(not visible)
             any_visible = any_visible or visible
@@ -264,8 +314,9 @@ class FilesystemView(QWidget):
     # --------------------------------------------------------------- selección --
     def _on_selection_changed(self) -> None:
         item = self._current_file_item()
-        can_extract = item is not None and self._config["dump_plugin"] is not None
-        self._extract_btn.setEnabled(can_extract)
+        can_dump = item is not None and self._config["dump_plugin"] is not None
+        self._extract_btn.setEnabled(can_dump)
+        self._preview_btn.setEnabled(can_dump)
 
     def _current_file_item(self) -> Optional[QTreeWidgetItem]:
         items = self._tree.selectedItems()
@@ -283,9 +334,12 @@ class FilesystemView(QWidget):
         if item is None or not item.data(0, _ROLE_IS_FILE):
             return
         menu = QMenu(self)
-        action = menu.addAction("Extraer este fichero...")
+        preview_action = menu.addAction("Visualizar (hex/strings)")
+        extract_action = menu.addAction("Extraer este fichero...")
         chosen = menu.exec_(self._tree.viewport().mapToGlobal(pos))
-        if chosen == action:
+        if chosen == preview_action:
+            self._preview_item(item)
+        elif chosen == extract_action:
             self._extract_item(item)
 
     # ------------------------------------------------------------ extracción --
@@ -305,7 +359,7 @@ class FilesystemView(QWidget):
             return
 
         identifier = item.data(0, _ROLE_IDENTIFIER) or ""
-        full_path = item.data(0, _ROLE_FULLPATH) or item.text(0)
+        full_path = item.data(0, _ROLE_FULLPATH) or item.text(_COL_NAME)
         suggested_name = os.path.basename(full_path.replace("\\", "/")) or "extraido.bin"
 
         if self._config["dump_mode"] == "dir":
@@ -349,3 +403,118 @@ class FilesystemView(QWidget):
                 f"Fichero: {name}\nDestino: {destination}\n\nSalida del plugin:\n{output[:500]}",
             )
         return handler
+
+    # --------------------------------------------------------- previsualización --
+    def _preview_selected(self) -> None:
+        item = self._current_file_item()
+        if item is not None:
+            self._preview_item(item)
+
+    def _preview_item(self, item: QTreeWidgetItem) -> None:
+        """Vuelca el fichero a una carpeta temporal y lo carga en el visor.
+
+        A diferencia de «Extraer», el destino es temporal y se limpia
+        automáticamente; sirve sólo para inspeccionar el contenido en hex/texto.
+        """
+        dump_plugin = self._config["dump_plugin"]
+        if not dump_plugin:
+            QMessageBox.information(
+                self,
+                "No soportado",
+                "La visualización individual de ficheros no está soportada para "
+                "este SO en Volatility 2.",
+            )
+            return
+
+        identifier = item.data(0, _ROLE_IDENTIFIER) or ""
+        if not identifier:
+            QMessageBox.warning(
+                self, "Sin identificador", "Este fichero no tiene offset/inodo para volcar."
+            )
+            return
+
+        full_path = item.data(0, _ROLE_FULLPATH) or item.text(_COL_NAME)
+        name = os.path.basename(full_path.replace("\\", "/")) or "previsualizacion.bin"
+
+        # Limpia volcados temporales previos (su contenido ya está en memoria).
+        self._cleanup_temp_dirs()
+        tmp_dir = tempfile.mkdtemp(prefix="vol2gui_preview_")
+        self._temp_dirs.append(tmp_dir)
+
+        if self._config["dump_mode"] == "dir":
+            extra = ["-Q", identifier, "-D", tmp_dir]
+            target = tmp_dir
+        else:  # mode == "file"
+            target = os.path.join(tmp_dir, name)
+            extra = ["-i", identifier, "-O", target]
+
+        self._status.setText(f"Volcando {name} (temporal) para previsualizar...")
+        self._progress.show()
+        audit_log.log_action(
+            f"PREVISUALIZACIÓN: {full_path} | volcado temporal en {tmp_dir}"
+        )
+        worker = self._runner.run_async(dump_plugin, extra)
+        worker.finished_ok.connect(self._make_preview_handler(name, tmp_dir, target))
+        worker.failed.connect(self._on_failed)
+        self._dump_workers.append(worker)
+
+    def _make_preview_handler(self, name: str, tmp_dir: str, target: str):
+        dump_mode = self._config["dump_mode"]
+
+        def handler(_plugin: str, output: str) -> None:
+            self._progress.hide()
+            path = target if dump_mode == "file" else self._find_dumped_file(tmp_dir)
+            if not path or not os.path.isfile(path):
+                self._viewer.clear()
+                self._status.setText("No se pudo previsualizar (sin fichero volcado).")
+                QMessageBox.information(
+                    self,
+                    "Sin datos",
+                    "El volcado no produjo un fichero legible.\n\n"
+                    f"Salida del plugin:\n{output[:500]}",
+                )
+                return
+            try:
+                with open(path, "rb") as handle:
+                    data = handle.read()
+            except OSError as exc:
+                self._viewer.clear()
+                self._status.setText("No se pudo leer el volcado temporal.")
+                QMessageBox.information(
+                    self,
+                    "Error al leer",
+                    f"No se pudo leer el fichero temporal.\n\n{exc}",
+                )
+                return
+
+            # Visualización 100% local: el visor formatea los bytes (hex/strings).
+            self._viewer.load_bytes(data, title=name)
+            self._status.setText(f"Previsualizando {name} (bytes en memoria).")
+
+        return handler
+
+    @staticmethod
+    def _find_dumped_file(directory: str) -> Optional[str]:
+        """Devuelve el fichero de mayor tamaño volcado en ``directory``."""
+        best: Optional[str] = None
+        best_size = -1
+        for root, _dirs, files in os.walk(directory):
+            for filename in files:
+                candidate = os.path.join(root, filename)
+                try:
+                    size = os.path.getsize(candidate)
+                except OSError:
+                    continue
+                if size > best_size:
+                    best_size = size
+                    best = candidate
+        return best
+
+    def _cleanup_temp_dirs(self) -> None:
+        for path in self._temp_dirs:
+            shutil.rmtree(path, ignore_errors=True)
+        self._temp_dirs.clear()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - override Qt
+        self._cleanup_temp_dirs()
+        super().closeEvent(event)
