@@ -45,6 +45,8 @@ from utils import audit_log
 # Columnas del árbol: primero el identificador (offset/inodo), luego el nombre.
 _COL_ID = 0
 _COL_NAME = 1
+_COL_SIZE = 2
+_COL_MTIME = 3
 
 # Roles de datos en los items del árbol.
 _ROLE_IDENTIFIER = Qt.UserRole + 1  # offset/inodo para extracción
@@ -57,6 +59,8 @@ _FS_CONFIG = {
         "enum_plugin": "filescan",
         "id_headers": ["Offset(P)", "Offset"],
         "path_headers": ["Name"],
+        "size_headers": ["Size", "File Size", "FileSize", "Length"],
+        "mtime_headers": ["Modified", "Modified Time", "MTime", "LastWrite", "Last Write", "LastWriteTime"],
         "dump_plugin": "dumpfiles",
         "dump_mode": "dir",  # dumpfiles escribe en un directorio
         "separator": "\\",
@@ -66,6 +70,8 @@ _FS_CONFIG = {
         "enum_plugin": "linux_enumerate_files",
         "id_headers": ["Inode Address", "Inode"],
         "path_headers": ["Path", "File Path"],
+        "size_headers": ["Size", "File Size", "FileSize", "Length"],
+        "mtime_headers": ["Modified", "Modified Time", "MTime", "Last Modified", "LastWrite", "Last Write"],
         "dump_plugin": "linux_find_file",
         "dump_mode": "file",  # linux_find_file escribe un fichero concreto
         "separator": "/",
@@ -75,6 +81,8 @@ _FS_CONFIG = {
         "enum_plugin": "mac_list_files",
         "id_headers": ["File Pointer", "Address"],
         "path_headers": ["Path", "File Path"],
+        "size_headers": ["Size", "File Size", "FileSize", "Length"],
+        "mtime_headers": ["Modified", "Modified Time", "MTime", "Last Modified", "LastWrite", "Last Write"],
         "dump_plugin": None,  # extracción individual no soportada
         "dump_mode": None,
         "separator": "/",
@@ -154,7 +162,9 @@ class FilesystemView(QWidget):
         splitter = QSplitter(Qt.Horizontal)
 
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Identificador (offset/inodo)", "Nombre"])
+        self._tree.setHeaderLabels(
+            ["Identificador (offset/inodo)", "Nombre", "Tamaño", "Modificado"]
+        )
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
@@ -190,6 +200,8 @@ class FilesystemView(QWidget):
         headers, rows = parse_table(output)
         id_idx = self._find_col(headers, self._config["id_headers"])
         path_idx = self._find_col(headers, self._config["path_headers"])
+        size_idx = self._find_col(headers, self._config.get("size_headers", []))
+        mtime_idx = self._find_col(headers, self._config.get("mtime_headers", []))
         if path_idx < 0:
             self._status.setText("No se pudo interpretar la salida (usa la pestaña de artefactos).")
             return
@@ -199,8 +211,10 @@ class FilesystemView(QWidget):
                 continue
             path = row[path_idx].strip()
             identifier = row[id_idx].strip() if 0 <= id_idx < len(row) else ""
+            size = row[size_idx].strip() if 0 <= size_idx < len(row) else ""
+            mtime = row[mtime_idx].strip() if 0 <= mtime_idx < len(row) else ""
             if path:
-                entries.append((path, identifier))
+                entries.append((path, identifier, size, mtime))
         self._build_tree(entries)
         self._status.setText(f"{len(entries)} ficheros enumerados.")
 
@@ -232,7 +246,7 @@ class FilesystemView(QWidget):
         sep = self._config["separator"]
         root_nodes: Dict[str, QTreeWidgetItem] = {}
 
-        for path, identifier in entries:
+        for path, identifier, size, mtime in entries:
             clean = path
             for prefix in self._config["strip_prefixes"]:
                 if clean.startswith(prefix):
@@ -250,7 +264,12 @@ class FilesystemView(QWidget):
                 child = self._find_child(parent, part, root_nodes)
                 if child is None:
                     child = QTreeWidgetItem(
-                        [identifier if is_last else "", part]
+                        [
+                            identifier if is_last else "",
+                            part,
+                            size if is_last else "",
+                            mtime if is_last else "",
+                        ]
                     )
                     child.setData(0, _ROLE_FULLPATH, accumulated)
                     child.setData(0, _ROLE_IS_FILE, is_last)
@@ -270,6 +289,8 @@ class FilesystemView(QWidget):
                     child.setData(0, _ROLE_IS_FILE, False)
                     child.setData(0, _ROLE_IDENTIFIER, "")
                     child.setText(_COL_ID, "")
+                    child.setText(_COL_SIZE, "")
+                    child.setText(_COL_MTIME, "")
                     child.setIcon(_COL_NAME, self._dir_icon)
                 parent = child
 
