@@ -37,3 +37,5 @@ audit.log
 *.json
 *.html
 
+# volatility binary, no lo vamos a subir al repo
+volatility
