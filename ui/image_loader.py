@@ -32,7 +32,8 @@ from PyQt5.QtWidgets import (
 
 from core.parser import parse_imageinfo
 from core.profile import OSType, ProfileInfo, detect_from_imageinfo, profile_summary
-from core.runner import PluginWorker, VolatilityRunner
+from core.profiles import default_profiles_dir, has_profiles
+from core.runner import PluginWorker, ProfileListWorker, VolatilityError, VolatilityRunner
 from utils import audit_log
 
 
@@ -53,13 +54,16 @@ class StartupDialog(QDialog):
         self.binary_path = ""
         self.image_path = ""
         self.manual_profile = ""
+        self._profile_worker: Optional[ProfileListWorker] = None
         self._build_ui()
+        self._refresh_local_profiles()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
         self._binary = QLineEdit(_default_binary())
+        self._binary.editingFinished.connect(self._refresh_local_profiles)
         bin_row = QHBoxLayout()
         bin_row.addWidget(self._binary, 1)
         bin_btn = QPushButton("...")
@@ -81,15 +85,20 @@ class StartupDialog(QDialog):
         img_container.setLayout(img_row)
         form.addRow("Imagen de RAM:", img_container)
 
-        self._profile = QLineEdit()
-        self._profile.setPlaceholderText("(opcional) perfil manual, p. ej. Win7SP1x64 o LinuxUbuntu...")
+        self._profile = QComboBox()
+        self._profile.setEditable(True)
+        self._profile.lineEdit().setPlaceholderText(
+            "(opcional) perfil manual, p. ej. Win7SP1x64 o LinuxUbuntu..."
+        )
         form.addRow("Perfil (opcional):", self._profile)
 
         layout.addLayout(form)
 
         hint = QLabel(
             "El perfil puede dejarse vacío: se detectará con «imageinfo». "
-            "Para Linux/Mac suele ser necesario indicarlo manualmente."
+            "Para Linux/Mac suele ser necesario indicarlo manualmente. Los "
+            "perfiles guardados en la carpeta «profiles/» se cargan "
+            "automáticamente en este desplegable."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888;font-size:11px;")
@@ -129,8 +138,37 @@ class StartupDialog(QDialog):
             return
         self.binary_path = binary
         self.image_path = image
-        self.manual_profile = self._profile.text().strip()
+        self.manual_profile = self._profile.currentText().strip()
         self.accept()
+
+    def _refresh_local_profiles(self) -> None:
+        """Carga en el desplegable los perfiles de la carpeta ``profiles/``.
+
+        Necesita un binario válido (``--info`` lo ejecuta el binario) y que la
+        carpeta contenga archivos de perfil. Se hace en segundo plano para no
+        bloquear el diálogo.
+        """
+        binary = self._binary.text().strip()
+        profiles_dir = default_profiles_dir()
+        if not binary or not os.path.isfile(binary) or not has_profiles(profiles_dir):
+            return
+        if self._profile_worker is not None and self._profile_worker.isRunning():
+            return
+        try:
+            runner = VolatilityRunner(binary, profiles_dir=profiles_dir)
+        except VolatilityError:
+            return
+        self._profile_worker = ProfileListWorker(runner)
+        self._profile_worker.finished_ok.connect(self._on_local_profiles)
+        self._profile_worker.start()
+
+    def _on_local_profiles(self, profiles: list) -> None:
+        current = self._profile.currentText()
+        for prof in profiles:
+            if self._profile.findText(prof) < 0:
+                self._profile.addItem(prof)
+        # Preserva lo que el analista hubiera escrito a mano.
+        self._profile.setCurrentText(current)
 
 
 class HashWorker(QThread):
@@ -175,6 +213,8 @@ class ImageReportWidget(QWidget):
         self._runner = runner
         self._hash_worker: Optional[HashWorker] = None
         self._info_worker: Optional[PluginWorker] = None
+        self._profile_worker: Optional[ProfileListWorker] = None
+        self._local_profiles: list = []
         self._profile_info = ProfileInfo()
         self._build_ui()
 
@@ -234,6 +274,12 @@ class ImageReportWidget(QWidget):
         self._info_worker.finished_ok.connect(self._on_imageinfo)
         self._info_worker.failed.connect(self._on_info_failed)
 
+        # Carga en segundo plano los perfiles de la carpeta ``profiles/`` para
+        # ofrecerlos como recursos en el desplegable de perfil activo.
+        self._profile_worker = ProfileListWorker(self._runner)
+        self._profile_worker.finished_ok.connect(self._on_local_profiles)
+        self._profile_worker.start()
+
     # ---------------------------------------------------------------- hashes --
     def _on_hashes(self, md5: str, sha256: str) -> None:
         self._md5 = md5
@@ -266,11 +312,32 @@ class ImageReportWidget(QWidget):
                 self._profile_combo.addItem(prof)
         if self._profile_combo.count() == 0 and self._profile_info.selected_profile:
             self._profile_combo.addItem(self._profile_info.selected_profile)
+        # Añade los perfiles locales (carpeta ``profiles/``) ya conocidos.
+        for prof in self._local_profiles:
+            if self._profile_combo.findText(prof) < 0:
+                self._profile_combo.addItem(prof)
         self._profile_combo.blockSignals(False)
         # Asegura que el runner tenga un perfil si se detectó alguno.
         if not self._runner.profile and self._profile_info.selected_profile:
             self._runner.profile = self._profile_info.selected_profile
             self._profile_combo.setCurrentText(self._profile_info.selected_profile)
+
+    def _on_local_profiles(self, profiles: list) -> None:
+        """Incorpora al desplegable los perfiles de la carpeta ``profiles/``."""
+        self._local_profiles = profiles or []
+        if not self._local_profiles:
+            return
+        current = self._profile_combo.currentText()
+        self._profile_combo.blockSignals(True)
+        for prof in self._local_profiles:
+            if self._profile_combo.findText(prof) < 0:
+                self._profile_combo.addItem(prof)
+        if current:
+            self._profile_combo.setCurrentText(current)
+        self._profile_combo.blockSignals(False)
+        audit_log.log_action(
+            "Perfiles locales cargados desde profiles/: " + ", ".join(self._local_profiles)
+        )
 
     def _on_profile_changed(self, text: str) -> None:
         # Sólo actualiza la previsualización; se aplica con el botón.

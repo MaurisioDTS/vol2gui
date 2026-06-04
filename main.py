@@ -14,6 +14,7 @@ import sys
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
+from core.profiles import default_profiles_dir
 from core.runner import VolatilityError, VolatilityRunner
 from ui.image_loader import StartupDialog
 from ui.main_window import MainWindow
@@ -37,6 +38,7 @@ def main() -> int:
             binary_path=dialog.binary_path,
             image_path=dialog.image_path,
             profile=dialog.manual_profile or None,
+            profiles_dir=default_profiles_dir(),
         )
     except VolatilityError as exc:
         QMessageBox.critical(None, "Error al iniciar", str(exc))

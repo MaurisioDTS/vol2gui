@@ -24,6 +24,9 @@ at memory forensics on ram images.
   report.
 - **audit log** (`audit.log`): every action (plugin run, extraction, export) is
   timestamped for chain-of-custody traceability.
+- **custom profiles**: drop your volatility 2 profile `.zip` files into the
+  `profiles/` folder and they are loaded automatically (`--plugins`) and offered
+  in the profile dropdown for future investigations.
 
 ## requirements
 
@@ -58,7 +61,8 @@ python3 main.py
 
 on startup it asks for the volatility binary path (defaults to `./volatility`),
 the ram image to analyze, and optionally a profile. for linux/macos images you
-usually need to set the profile manually.
+usually need to set the profile manually. any profile `.zip` you put in the
+`profiles/` folder is loaded automatically and shows up in the profile dropdown.
 
 ## layout
 
@@ -66,9 +70,11 @@ usually need to set the profile manually.
 volatility2gui/
 ├── volatility           # ULTRA IMPORTANT, GO GET THIS NOW!
 ├── main.py              # entry point
+├── profiles/            # drop your custom vol2 profiles (.zip) here
 ├── core/                # execution + parsing
 │   ├── runner.py        # subprocess wrapper (sync + qthread)
 │   ├── parser.py        # volatility 2 text output parsers
+│   ├── profiles.py      # custom profiles dir + --info parsing
 │   └── profile.py       # os/profile detection from imageinfo
 ├── ui/                  # pyqt5 ui
 │   ├── main_window.py

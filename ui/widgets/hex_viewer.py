@@ -2,20 +2,25 @@
 
 Componente independiente pensado para reutilizarse en cualquier sección del
 programa que necesite inspeccionar bytes en crudo (explorador de ficheros,
-artefactos, búsqueda, etc.). Acepta los datos de tres formas:
+artefactos, búsqueda, etc.).
 
-  - ``load_bytes(data, title)``: a partir de un ``bytes`` ya en memoria.
-  - ``load_file(path, title)``: leyendo un fichero del disco.
-  - ``clear()``: vacía el visor.
+Flujo típico con Volatility (Windows/Linux/macOS):
 
-Ofrece tres modos de visualización: hexadecimal (estilo ``hexdump``), texto
-(extracción de cadenas imprimibles, estilo ``strings``) y ambos a la vez.
+  1. El plugin de volcado escribe un fichero temporal (``dumpfiles``,
+     ``linux_find_file``, ``mac_dump_file``, etc.).
+  2. ``load_from_dump_path()`` lee esos bytes y los muestra en hex/strings.
+
+También admite carga directa con ``load_bytes()`` / ``load_file()`` y el
+volcado asíncrono integrado con ``dump_and_show()``.
 """
 
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional
+
+if TYPE_CHECKING:
+    from core.runner import PluginWorker, VolatilityRunner
 
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
@@ -108,6 +113,76 @@ class HexViewer(QWidget):
             self._editor.clear()
             return
         self.load_bytes(data, title or os.path.basename(path))
+
+    def load_from_dump_path(self, path: Optional[str], title: str = "") -> Optional[str]:
+        """Lee un fichero volcado por Volatility y lo muestra.
+
+        Devuelve ``None`` si todo fue bien, o un mensaje de error en caso contrario.
+        """
+        if not path or not os.path.isfile(path):
+            self.clear()
+            return "El volcado no produjo un fichero legible."
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read()
+        except OSError as exc:
+            self.clear()
+            return f"No se pudo leer el fichero volcado: {exc}"
+        self.load_bytes(data, title=title)
+        return None
+
+    @staticmethod
+    def find_largest_file_in_dir(directory: str) -> Optional[str]:
+        """Devuelve el fichero de mayor tamaño dentro de ``directory``."""
+        best: Optional[str] = None
+        best_size = -1
+        for root, _dirs, files in os.walk(directory):
+            for filename in files:
+                candidate = os.path.join(root, filename)
+                try:
+                    size = os.path.getsize(candidate)
+                except OSError:
+                    continue
+                if size > best_size:
+                    best_size = size
+                    best = candidate
+        return best
+
+    def dump_and_show(
+        self,
+        runner: "VolatilityRunner",
+        plugin: str,
+        extra_args: List[str],
+        title: str,
+        *,
+        output_path: Optional[str] = None,
+        search_dir: Optional[str] = None,
+        on_loaded: Optional[Callable[[str], None]] = None,
+        on_failed: Optional[Callable[[str, str], None]] = None,
+    ) -> "PluginWorker":
+        """Ejecuta un plugin de volcado y, al terminar, muestra el resultado.
+
+        Para ``dump_mode`` tipo fichero (Linux/macOS), pase ``output_path``.
+        Para volcado en directorio (Windows ``dumpfiles``), pase ``search_dir``.
+        """
+        from core.runner import PluginWorker
+
+        def _on_ok(_plugin: str, output: str) -> None:
+            path = output_path
+            if search_dir:
+                path = self.find_largest_file_in_dir(search_dir)
+            err = self.load_from_dump_path(path, title=title)
+            if err:
+                if on_failed:
+                    on_failed(_plugin, f"{err}\n\nSalida del plugin:\n{output[:500]}")
+            elif on_loaded:
+                on_loaded(title)
+
+        worker: PluginWorker = runner.run_async(plugin, extra_args)
+        worker.finished_ok.connect(_on_ok)
+        if on_failed:
+            worker.failed.connect(on_failed)
+        return worker
 
     # -------------------------------------------------------------- render --
     def _update_title(self) -> None:

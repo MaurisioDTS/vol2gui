@@ -15,6 +15,8 @@ from typing import List, Optional
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
+from core.profiles import has_profiles, parse_info_profiles
+
 
 class VolatilityError(Exception):
     """Error al ejecutar el binario de Volatility."""
@@ -24,7 +26,9 @@ class VolatilityRunner:
     """Encapsula las llamadas al binario ``volatility``.
 
     Mantiene la ruta del binario, la imagen activa y el perfil detectado para
-    no tener que repetirlos en cada plugin.
+    no tener que repetirlos en cada plugin. Si se indica ``profiles_dir`` y
+    contiene archivos de perfil, se añade ``--plugins=<dir>`` a cada comando
+    para que Volatility cargue los perfiles personalizados del analista.
     """
 
     def __init__(
@@ -32,16 +36,23 @@ class VolatilityRunner:
         binary_path: str,
         image_path: Optional[str] = None,
         profile: Optional[str] = None,
+        profiles_dir: Optional[str] = None,
     ) -> None:
         self.binary_path = os.path.abspath(binary_path)
         if not os.path.isfile(self.binary_path):
             raise VolatilityError(f"No se encontró el binario: {self.binary_path}")
         self.image_path = image_path
         self.profile = profile
+        self.profiles_dir = os.path.abspath(profiles_dir) if profiles_dir else None
+
+    def _uses_custom_profiles(self) -> bool:
+        return bool(self.profiles_dir) and has_profiles(self.profiles_dir)
 
     def build_command(self, plugin: str, extra_args: Optional[List[str]] = None) -> List[str]:
         """Construye la lista de argumentos para ``subprocess``."""
         cmd: List[str] = [self.binary_path]
+        if self._uses_custom_profiles():
+            cmd += [f"--plugins={self.profiles_dir}"]
         if self.image_path:
             cmd += ["-f", self.image_path]
         if self.profile:
@@ -50,6 +61,30 @@ class VolatilityRunner:
         if extra_args:
             cmd += extra_args
         return cmd
+
+    def list_local_profiles(self, timeout: Optional[int] = 60) -> List[str]:
+        """Devuelve los perfiles Linux/macOS aportados por la carpeta de perfiles.
+
+        Ejecuta ``volatility --plugins=<dir> --info`` y filtra los nombres de
+        perfil reales (los que Volatility deriva de los archivos ``.zip``). Si
+        no hay carpeta de perfiles o no contiene archivos, devuelve una lista
+        vacía sin invocar al binario.
+        """
+        if not self._uses_custom_profiles():
+            return []
+        cmd = [self.binary_path, f"--plugins={self.profiles_dir}", "--info"]
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return []
+        output = proc.stdout.decode("utf-8", errors="replace")
+        return parse_info_profiles(output)
 
     def run(
         self,
@@ -135,3 +170,25 @@ class PluginWorker(QThread):
             self.failed.emit(self._plugin, str(exc))
         except Exception as exc:  # pragma: no cover - defensivo
             self.failed.emit(self._plugin, f"Error inesperado: {exc}")
+
+
+class ProfileListWorker(QThread):
+    """Lista los perfiles locales (carpeta ``profiles/``) en segundo plano.
+
+    Ejecutar ``--info`` puede tardar varios segundos, por lo que se hace en un
+    hilo aparte para no congelar la interfaz.
+    """
+
+    finished_ok = pyqtSignal(list)  # lista de nombres de perfil
+
+    def __init__(self, runner: "VolatilityRunner", timeout: Optional[int] = 60) -> None:
+        super().__init__()
+        self._runner = runner
+        self._timeout = timeout
+
+    def run(self) -> None:  # noqa: D401 - override de QThread
+        try:
+            profiles = self._runner.list_local_profiles(self._timeout)
+        except Exception:  # pragma: no cover - defensivo
+            profiles = []
+        self.finished_ok.emit(profiles)

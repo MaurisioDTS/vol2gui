@@ -8,8 +8,7 @@ diálogo para elegir el destino.
 Plugins por SO:
   - Windows: ``filescan`` (enumerar) + ``dumpfiles -Q <offset> -D <dir>``.
   - Linux:   ``linux_enumerate_files`` + ``linux_find_file -i <inodo> -O <fichero>``.
-  - Mac:     ``mac_list_files`` (enumerar). La extracción individual no está
-             soportada de forma fiable en Volatility 2 para Mac.
+  - Mac:     ``mac_list_files`` (enumerar) + ``mac_dump_file -q <vnode> -O <fichero>``.
 """
 
 from __future__ import annotations
@@ -63,6 +62,8 @@ _FS_CONFIG = {
         "mtime_headers": ["Modified", "Modified Time", "MTime", "LastWrite", "Last Write", "LastWriteTime"],
         "dump_plugin": "dumpfiles",
         "dump_mode": "dir",  # dumpfiles escribe en un directorio
+        "dump_id_flag": "-Q",
+        "dump_dir_flag": "-D",
         "separator": "\\",
         "strip_prefixes": ["\\Device\\HarddiskVolume1", "\\Device\\HarddiskVolume2", "\\Device\\HarddiskVolume0"],
     },
@@ -74,17 +75,21 @@ _FS_CONFIG = {
         "mtime_headers": ["Modified", "Modified Time", "MTime", "Last Modified", "LastWrite", "Last Write"],
         "dump_plugin": "linux_find_file",
         "dump_mode": "file",  # linux_find_file escribe un fichero concreto
+        "dump_id_flag": "-i",
+        "dump_out_flag": "-O",
         "separator": "/",
         "strip_prefixes": [],
     },
     OSType.MAC: {
         "enum_plugin": "mac_list_files",
-        "id_headers": ["File Pointer", "Address"],
+        "id_headers": ["Offset", "File Pointer", "Address", "Vnode", "vnode"],
         "path_headers": ["Path", "File Path"],
         "size_headers": ["Size", "File Size", "FileSize", "Length"],
         "mtime_headers": ["Modified", "Modified Time", "MTime", "Last Modified", "LastWrite", "Last Write"],
-        "dump_plugin": None,  # extracción individual no soportada
-        "dump_mode": None,
+        "dump_plugin": "mac_dump_file",
+        "dump_mode": "file",  # mac_dump_file escribe un fichero concreto
+        "dump_id_flag": "-q",
+        "dump_out_flag": "-O",
         "separator": "/",
         "strip_prefixes": [],
     },
@@ -93,6 +98,23 @@ _FS_CONFIG = {
 
 def _config_for(os_type: OSType) -> Dict:
     return _FS_CONFIG.get(os_type, _FS_CONFIG[OSType.WINDOWS])
+
+
+def _build_dump_extra(config: Dict, identifier: str, output_path: str) -> List[str]:
+    """Construye los argumentos del plugin de volcado según el SO."""
+    if config["dump_mode"] == "dir":
+        return [
+            config.get("dump_id_flag", "-Q"),
+            identifier,
+            config.get("dump_dir_flag", "-D"),
+            output_path,
+        ]
+    return [
+        config.get("dump_id_flag", "-i"),
+        identifier,
+        config.get("dump_out_flag", "-O"),
+        output_path,
+    ]
 
 
 class FilesystemView(QWidget):
@@ -389,7 +411,7 @@ class FilesystemView(QWidget):
             )
             if not dest_dir:
                 return
-            extra = ["-Q", identifier, "-D", dest_dir]
+            extra = _build_dump_extra(self._config, identifier, dest_dir)
             destination = dest_dir
         else:  # mode == "file"
             dest_file, _ = QFileDialog.getSaveFileName(
@@ -397,7 +419,7 @@ class FilesystemView(QWidget):
             )
             if not dest_file:
                 return
-            extra = ["-i", identifier, "-O", dest_file]
+            extra = _build_dump_extra(self._config, identifier, dest_file)
             destination = dest_file
 
         if not identifier:
@@ -462,74 +484,39 @@ class FilesystemView(QWidget):
         tmp_dir = tempfile.mkdtemp(prefix="vol2gui_preview_")
         self._temp_dirs.append(tmp_dir)
 
-        if self._config["dump_mode"] == "dir":
-            extra = ["-Q", identifier, "-D", tmp_dir]
+        dump_mode = self._config["dump_mode"]
+        if dump_mode == "dir":
             target = tmp_dir
-        else:  # mode == "file"
+            extra = _build_dump_extra(self._config, identifier, tmp_dir)
+        else:
             target = os.path.join(tmp_dir, name)
-            extra = ["-i", identifier, "-O", target]
+            extra = _build_dump_extra(self._config, identifier, target)
 
         self._status.setText(f"Volcando {name} (temporal) para previsualizar...")
         self._progress.show()
         audit_log.log_action(
             f"PREVISUALIZACIÓN: {full_path} | volcado temporal en {tmp_dir}"
         )
-        worker = self._runner.run_async(dump_plugin, extra)
-        worker.finished_ok.connect(self._make_preview_handler(name, tmp_dir, target))
-        worker.failed.connect(self._on_failed)
+        worker = self._viewer.dump_and_show(
+            self._runner,
+            dump_plugin,
+            extra,
+            name,
+            output_path=target if dump_mode == "file" else None,
+            search_dir=tmp_dir if dump_mode == "dir" else None,
+            on_loaded=self._on_preview_loaded,
+            on_failed=self._on_preview_failed,
+        )
         self._dump_workers.append(worker)
 
-    def _make_preview_handler(self, name: str, tmp_dir: str, target: str):
-        dump_mode = self._config["dump_mode"]
+    def _on_preview_loaded(self, name: str) -> None:
+        self._progress.hide()
+        self._status.setText(f"Previsualizando {name} (bytes en memoria).")
 
-        def handler(_plugin: str, output: str) -> None:
-            self._progress.hide()
-            path = target if dump_mode == "file" else self._find_dumped_file(tmp_dir)
-            if not path or not os.path.isfile(path):
-                self._viewer.clear()
-                self._status.setText("No se pudo previsualizar (sin fichero volcado).")
-                QMessageBox.information(
-                    self,
-                    "Sin datos",
-                    "El volcado no produjo un fichero legible.\n\n"
-                    f"Salida del plugin:\n{output[:500]}",
-                )
-                return
-            try:
-                with open(path, "rb") as handle:
-                    data = handle.read()
-            except OSError as exc:
-                self._viewer.clear()
-                self._status.setText("No se pudo leer el volcado temporal.")
-                QMessageBox.information(
-                    self,
-                    "Error al leer",
-                    f"No se pudo leer el fichero temporal.\n\n{exc}",
-                )
-                return
-
-            # Visualización 100% local: el visor formatea los bytes (hex/strings).
-            self._viewer.load_bytes(data, title=name)
-            self._status.setText(f"Previsualizando {name} (bytes en memoria).")
-
-        return handler
-
-    @staticmethod
-    def _find_dumped_file(directory: str) -> Optional[str]:
-        """Devuelve el fichero de mayor tamaño volcado en ``directory``."""
-        best: Optional[str] = None
-        best_size = -1
-        for root, _dirs, files in os.walk(directory):
-            for filename in files:
-                candidate = os.path.join(root, filename)
-                try:
-                    size = os.path.getsize(candidate)
-                except OSError:
-                    continue
-                if size > best_size:
-                    best_size = size
-                    best = candidate
-        return best
+    def _on_preview_failed(self, plugin: str, message: str) -> None:
+        self._progress.hide()
+        self._status.setText("No se pudo previsualizar.")
+        QMessageBox.information(self, f"Error en {plugin}", message)
 
     def _cleanup_temp_dirs(self) -> None:
         for path in self._temp_dirs:
