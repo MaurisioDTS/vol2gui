@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import t
 from utils import audit_log, export
 
 
@@ -39,14 +40,14 @@ class ExportDialog(QDialog):
         self,
         headers: List[str],
         rows: List[List[str]],
-        default_name: str = "resultado",
+        default_name: str = "",
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._headers = headers
         self._rows = rows
-        self._default_name = default_name
-        self.setWindowTitle("Exportar resultados")
+        self._default_name = default_name or t("export.default_name")
+        self.setWindowTitle(t("plugin.export_title"))
         self.resize(480, 160)
         self._build_ui()
 
@@ -54,7 +55,7 @@ class ExportDialog(QDialog):
         layout = QVBoxLayout(self)
 
         fmt_row = QHBoxLayout()
-        fmt_row.addWidget(QLabel("Formato:"))
+        fmt_row.addWidget(QLabel(t("export.format_label")))
         self._fmt = QComboBox()
         self._fmt.addItems(list(self._FORMATS.keys()))
         self._fmt.currentTextChanged.connect(self._sync_extension)
@@ -62,15 +63,15 @@ class ExportDialog(QDialog):
         layout.addLayout(fmt_row)
 
         path_row = QHBoxLayout()
-        path_row.addWidget(QLabel("Destino:"))
+        path_row.addWidget(QLabel(t("export.dest_label")))
         self._path = QLineEdit(f"{self._default_name}.csv")
         path_row.addWidget(self._path, 1)
-        browse = QPushButton("Examinar...")
+        browse = QPushButton(t("common.browse"))
         browse.clicked.connect(self._browse)
         path_row.addWidget(browse)
         layout.addLayout(path_row)
 
-        info = QLabel(f"{len(self._rows)} fila(s) a exportar.")
+        info = QLabel(t("export.rows_to_export", count=len(self._rows)))
         info.setStyleSheet("color:#888;")
         layout.addWidget(info)
 
@@ -86,7 +87,7 @@ class ExportDialog(QDialog):
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
-            self, "Guardar como", self._path.text(), export.file_filter()
+            self, t("export.save_as"), self._path.text(), export.file_filter()
         )
         if path:
             self._path.setText(path)
@@ -94,7 +95,7 @@ class ExportDialog(QDialog):
     def _do_export(self) -> None:
         path = self._path.text().strip()
         if not path:
-            QMessageBox.warning(self, "Destino vacío", "Indica una ruta de destino.")
+            QMessageBox.warning(self, t("export.empty_dest_title"), t("export.empty_dest_msg"))
             return
         fmt_label = self._fmt.currentText()
         fmt_name, func = self._FORMATS[fmt_label]
@@ -105,6 +106,6 @@ class ExportDialog(QDialog):
                 func(path, self._headers, self._rows)
             audit_log.log_export(fmt_name, path, len(self._rows))
         except OSError as exc:
-            QMessageBox.warning(self, "Error al exportar", str(exc))
+            QMessageBox.warning(self, t("plugin.export_error"), str(exc))
             return
         self.accept()

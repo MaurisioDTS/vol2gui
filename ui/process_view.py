@@ -29,29 +29,42 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import t
 from core.parser import parse_pstree, parse_table
 from core.profile import OSType
 from core.runner import PluginWorker, VolatilityRunner
 from utils import audit_log
 
-# Mapeo de plugins por SO.
+# Mapeo de plugins por SO. En "detail" se guarda la clave i18n de la etiqueta
+# (no el texto), porque este diccionario se evalúa al importar el módulo, antes
+# de que se fije el idioma activo.
 _PLUGINS = {
     OSType.WINDOWS: {
         "pslist": "pslist",
         "pstree": "pstree",
-        "detail": [("Línea de comando", "cmdline"), ("DLLs", "dlllist"), ("Handles", "handles")],
+        "detail": [
+            ("process.detail_cmdline", "cmdline"),
+            ("process.detail_dlls", "dlllist"),
+            ("process.detail_handles", "handles"),
+        ],
         "pid_flag": "-p",
     },
     OSType.LINUX: {
         "pslist": "linux_pslist",
         "pstree": "linux_pstree",
-        "detail": [("Argumentos", "linux_psaux"), ("Mapas", "linux_proc_maps")],
+        "detail": [
+            ("process.detail_args", "linux_psaux"),
+            ("process.detail_maps", "linux_proc_maps"),
+        ],
         "pid_flag": "-p",
     },
     OSType.MAC: {
         "pslist": "mac_pslist",
         "pstree": "mac_pstree",
-        "detail": [("Mapas dyld", "mac_dyld_maps"), ("Entorno", "mac_psenv")],
+        "detail": [
+            ("process.detail_dyld_maps", "mac_dyld_maps"),
+            ("process.detail_env", "mac_psenv"),
+        ],
         "pid_flag": "-p",
     },
 }
@@ -83,11 +96,11 @@ class ProcessView(QWidget):
         layout = QVBoxLayout(self)
 
         controls = QHBoxLayout()
-        self._reload_btn = QPushButton("Recargar procesos")
+        self._reload_btn = QPushButton(t("process.reload"))
         self._reload_btn.clicked.connect(self.load)
         controls.addWidget(self._reload_btn)
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Filtrar por nombre o PID...")
+        self._filter.setPlaceholderText(t("process.filter_placeholder"))
         self._filter.textChanged.connect(self._apply_filter)
         controls.addWidget(self._filter, 1)
         layout.addLayout(controls)
@@ -110,11 +123,11 @@ class ProcessView(QWidget):
 
         # --- PStree (árbol) ---
         self._pstree = QTreeWidget()
-        self._pstree.setHeaderLabels(["Proceso", "PID", "PPID"])
+        self._pstree.setHeaderLabels([t("process.col_process"), "PID", "PPID"])
         self._pstree.itemDoubleClicked.connect(self._on_tree_double_click)
         self._tabs.addTab(self._pstree, "PSTree")
 
-        hint = QLabel("Doble clic en un proceso para ver su detalle (cmdline, DLLs, handles).")
+        hint = QLabel(t("process.hint"))
         hint.setStyleSheet("color:#888;font-size:11px;")
         layout.addWidget(hint)
 
@@ -145,7 +158,7 @@ class ProcessView(QWidget):
 
     def _on_pslist(self, _plugin: str, output: str) -> None:
         headers, rows = parse_table(output)
-        self._pslist_headers = headers or ["Salida"]
+        self._pslist_headers = headers or [t("common.output_col")]
         self._pslist_table.setSortingEnabled(False)
         self._pslist_table.setColumnCount(len(self._pslist_headers))
         self._pslist_table.setHorizontalHeaderLabels(self._pslist_headers)
@@ -184,7 +197,7 @@ class ProcessView(QWidget):
     def _on_failed(self, plugin: str, message: str) -> None:
         self._progress.hide()
         self._reload_btn.setEnabled(True)
-        QMessageBox.warning(self, f"Error en {plugin}", message)
+        QMessageBox.warning(self, t("common.error_in_plugin", plugin=plugin), message)
 
     # ---------------------------------------------------------------- filtro --
     def _apply_filter(self, text: str) -> None:
@@ -265,14 +278,14 @@ class ProcessDetailWindow(QWidget):
         self._plugins = plugins
         self._pid = pid
         self._workers: List[PluginWorker] = []
-        self.setWindowTitle(f"Detalle de proceso - {name} (PID {pid})")
+        self.setWindowTitle(t("process.detail_window_title", name=name, pid=pid))
         self.resize(820, 560)
         self._build_ui(name)
         self._load_all()
 
     def _build_ui(self, name: str) -> None:
         layout = QVBoxLayout(self)
-        header = QLabel(f"Proceso: {name}   |   PID: {self._pid}")
+        header = QLabel(t("process.detail_header", name=name, pid=self._pid))
         header.setStyleSheet("font-size:14px;color:#4ec9b0;font-weight:bold;")
         layout.addWidget(header)
 
@@ -280,18 +293,20 @@ class ProcessDetailWindow(QWidget):
         layout.addWidget(self._tabs, 1)
 
         self._editors: Dict[str, QTextEdit] = {}
-        for label, _plugin in self._plugins["detail"]:
+        for key, _plugin in self._plugins["detail"]:
+            label = t(key)
             editor = QTextEdit()
             editor.setReadOnly(True)
             editor.setLineWrapMode(QTextEdit.NoWrap)
             editor.setStyleSheet("font-family:monospace;")
-            editor.setPlainText("Cargando...")
+            editor.setPlainText(t("common.loading"))
             self._tabs.addTab(editor, label)
             self._editors[label] = editor
 
     def _load_all(self) -> None:
         pid_flag = self._plugins.get("pid_flag", "-p")
-        for label, plugin in self._plugins["detail"]:
+        for key, plugin in self._plugins["detail"]:
+            label = t(key)
             extra = [pid_flag, self._pid]
             audit_log.log_plugin(plugin, self._runner.command_string(plugin, extra))
             worker = self._runner.run_async(plugin, extra)
@@ -301,10 +316,10 @@ class ProcessDetailWindow(QWidget):
 
     def _make_handler(self, label: str):
         def handler(_plugin: str, output: str) -> None:
-            self._editors[label].setPlainText(output or "(sin salida)")
+            self._editors[label].setPlainText(output or t("common.no_output"))
         return handler
 
     def _make_fail_handler(self, label: str):
         def handler(_plugin: str, message: str) -> None:
-            self._editors[label].setPlainText(f"Error: {message}")
+            self._editors[label].setPlainText(t("process.detail_error", message=message))
         return handler

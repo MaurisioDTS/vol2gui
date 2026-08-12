@@ -30,6 +30,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core import i18n
+from core.i18n import t
 from core.parser import parse_imageinfo
 from core.profile import OSType, ProfileInfo, detect_from_imageinfo, profile_summary
 from core.profiles import default_profiles_dir, has_profiles
@@ -49,17 +51,33 @@ class StartupDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Volatility 2 GUI - Cargar imagen")
-        self.resize(620, 200)
+        self.resize(620, 220)
         self.binary_path = ""
         self.image_path = ""
         self.manual_profile = ""
         self._profile_worker: Optional[ProfileListWorker] = None
         self._build_ui()
+        self._retranslate()
         self._refresh_local_profiles()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+
+        # Selector de idioma (re-traduce el diálogo en vivo al cambiarlo).
+        lang_row = QHBoxLayout()
+        self._lang_label = QLabel()
+        lang_row.addWidget(self._lang_label)
+        self._lang_combo = QComboBox()
+        for code in i18n.supported_languages():
+            self._lang_combo.addItem(i18n.language_name(code), code)
+        idx = self._lang_combo.findData(i18n.get_language())
+        if idx >= 0:
+            self._lang_combo.setCurrentIndex(idx)
+        self._lang_combo.currentIndexChanged.connect(self._on_language_changed)
+        lang_row.addWidget(self._lang_combo)
+        lang_row.addStretch(1)
+        layout.addLayout(lang_row)
+
         form = QFormLayout()
 
         self._binary = QLineEdit(_default_binary())
@@ -72,7 +90,8 @@ class StartupDialog(QDialog):
         bin_row.addWidget(bin_btn)
         bin_container = QWidget()
         bin_container.setLayout(bin_row)
-        form.addRow("Binario Volatility:", bin_container)
+        self._binary_label = QLabel()
+        form.addRow(self._binary_label, bin_container)
 
         self._image = QLineEdit()
         img_row = QHBoxLayout()
@@ -83,44 +102,56 @@ class StartupDialog(QDialog):
         img_row.addWidget(img_btn)
         img_container = QWidget()
         img_container.setLayout(img_row)
-        form.addRow("Imagen de RAM:", img_container)
+        self._image_label = QLabel()
+        form.addRow(self._image_label, img_container)
 
         self._profile = QComboBox()
         self._profile.setEditable(True)
-        self._profile.lineEdit().setPlaceholderText(
-            "(opcional) perfil manual, p. ej. Win7SP1x64 o LinuxUbuntu..."
-        )
-        form.addRow("Perfil (opcional):", self._profile)
+        self._profile_label = QLabel()
+        form.addRow(self._profile_label, self._profile)
 
         layout.addLayout(form)
 
-        hint = QLabel(
-            "El perfil puede dejarse vacío: se detectará con «imageinfo». "
-            "Para Linux/Mac suele ser necesario indicarlo manualmente. Los "
-            "perfiles guardados en la carpeta «profiles/» se cargan "
-            "automáticamente en este desplegable."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#888;font-size:11px;")
-        layout.addWidget(hint)
+        self._hint = QLabel()
+        self._hint.setWordWrap(True)
+        self._hint.setStyleSheet("color:#888;font-size:11px;")
+        layout.addWidget(self._hint)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Cargar")
-        buttons.accepted.connect(self._accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self._buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self._buttons.accepted.connect(self._accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+
+    def _retranslate(self) -> None:
+        """Aplica los textos del idioma activo a todos los widgets del diálogo."""
+        self.setWindowTitle(t("startup.title"))
+        self._lang_label.setText(t("common.language") + ":")
+        self._binary_label.setText(t("startup.binary_label"))
+        self._image_label.setText(t("startup.image_label"))
+        self._profile_label.setText(t("startup.profile_label"))
+        self._profile.lineEdit().setPlaceholderText(t("startup.profile_placeholder"))
+        self._hint.setText(t("startup.hint"))
+        self._buttons.button(QDialogButtonBox.Ok).setText(t("startup.load_btn"))
+
+    def _on_language_changed(self, _index: int) -> None:
+        lang = self._lang_combo.currentData()
+        if not lang:
+            return
+        i18n.set_language(lang)
+        i18n.save_language(lang)
+        self._retranslate()
 
     def _pick_binary(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Seleccionar binario Volatility")
+        path, _ = QFileDialog.getOpenFileName(self, t("startup.pick_binary"))
         if path:
             self._binary.setText(path)
 
     def _pick_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Seleccionar imagen de RAM",
+            t("startup.pick_image"),
             "",
-            "Imágenes de memoria (*.raw *.mem *.vmem *.dmp *.lime *.bin *.img *.dump);;Todos los archivos (*)",
+            t("startup.image_filter"),
         )
         if path:
             self._image.setText(path)
@@ -131,10 +162,10 @@ class StartupDialog(QDialog):
         binary = self._binary.text().strip()
         image = self._image.text().strip()
         if not binary or not os.path.isfile(binary):
-            QMessageBox.warning(self, "Binario no válido", "Selecciona un binario de Volatility válido.")
+            QMessageBox.warning(self, t("startup.invalid_binary_title"), t("startup.invalid_binary_msg"))
             return
         if not image or not os.path.isfile(image):
-            QMessageBox.warning(self, "Imagen no válida", "Selecciona una imagen de RAM válida.")
+            QMessageBox.warning(self, t("startup.invalid_image_title"), t("startup.invalid_image_msg"))
             return
         self.binary_path = binary
         self.image_path = image
@@ -221,26 +252,26 @@ class ImageReportWidget(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        title = QLabel("Reporte automático de la imagen")
+        title = QLabel(t("report.title"))
         title.setStyleSheet("font-size:15px;color:#4ec9b0;font-weight:bold;")
         layout.addWidget(title)
 
-        self._summary = QLabel("Analizando imagen...")
+        self._summary = QLabel(t("report.analyzing"))
         self._summary.setWordWrap(True)
         self._summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self._summary.setStyleSheet("font-family:monospace;")
         layout.addWidget(self._summary)
 
         self._hash_progress = QProgressBar()
-        self._hash_progress.setFormat("Calculando hashes... %p%")
+        self._hash_progress.setFormat(t("report.hash_progress"))
         layout.addWidget(self._hash_progress)
 
         self._info_progress = QProgressBar()
         self._info_progress.setRange(0, 0)
-        self._info_progress.setFormat("Ejecutando imageinfo...")
+        self._info_progress.setFormat(t("report.running_imageinfo"))
         layout.addWidget(self._info_progress)
 
-        layout.addWidget(QLabel("Salida de imageinfo:"))
+        layout.addWidget(QLabel(t("report.imageinfo_output")))
         self._raw = QTextEdit()
         self._raw.setReadOnly(True)
         self._raw.setLineWrapMode(QTextEdit.NoWrap)
@@ -248,12 +279,12 @@ class ImageReportWidget(QWidget):
         layout.addWidget(self._raw, 1)
 
         profile_row = QHBoxLayout()
-        profile_row.addWidget(QLabel("Perfil activo:"))
+        profile_row.addWidget(QLabel(t("report.active_profile")))
         self._profile_combo = QComboBox()
         self._profile_combo.setEditable(True)
         self._profile_combo.currentTextChanged.connect(self._on_profile_changed)
         profile_row.addWidget(self._profile_combo, 1)
-        self._apply_btn = QPushButton("Aplicar perfil")
+        self._apply_btn = QPushButton(t("report.apply_profile"))
         self._apply_btn.clicked.connect(self._apply_profile)
         profile_row.addWidget(self._apply_btn)
         layout.addLayout(profile_row)
@@ -285,7 +316,7 @@ class ImageReportWidget(QWidget):
         self._md5 = md5
         self._sha256 = sha256
         self._hash_progress.setValue(100)
-        self._hash_progress.setFormat("Hashes calculados")
+        self._hash_progress.setFormat(t("report.hashes_done"))
         audit_log.log_image_loaded(self._runner.image_path, md5, sha256)
         self._refresh_summary()
 
@@ -300,7 +331,7 @@ class ImageReportWidget(QWidget):
 
     def _on_info_failed(self, _plugin: str, message: str) -> None:
         self._info_progress.hide()
-        self._raw.setPlainText(f"Error al ejecutar imageinfo:\n{message}")
+        self._raw.setPlainText(t("report.imageinfo_error", message=message))
 
     def _populate_profiles(self) -> None:
         self._profile_combo.blockSignals(True)
@@ -354,10 +385,12 @@ class ImageReportWidget(QWidget):
     # ---------------------------------------------------------------- resumen --
     def _refresh_summary(self) -> None:
         parsed = parse_imageinfo(self._profile_info.raw_imageinfo)
+        computing = t("report.computing")
+        image_label = t("report.summary_image")
         lines = [
-            f"Imagen        : {self._runner.image_path}",
-            f"MD5           : {getattr(self, '_md5', '') or '(calculando...)'}",
-            f"SHA256        : {getattr(self, '_sha256', '') or '(calculando...)'}",
+            f"{image_label:<14}: {self._runner.image_path}",
+            f"{'MD5':<14}: {getattr(self, '_md5', '') or computing}",
+            f"{'SHA256':<14}: {getattr(self, '_sha256', '') or computing}",
             "",
             profile_summary(self._profile_info),
         ]

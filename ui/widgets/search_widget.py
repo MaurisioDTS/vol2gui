@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import t
 from core.profile import OSType
 from core.runner import PluginWorker, VolatilityRunner
 from utils import audit_log
@@ -52,25 +53,23 @@ class SearchWidget(QWidget):
         layout = QVBoxLayout(self)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("Buscar:"))
+        row.addWidget(QLabel(t("search.label")))
         self._pattern = QLineEdit()
-        self._pattern.setPlaceholderText("Cadena de texto a buscar en memoria...")
+        self._pattern.setPlaceholderText(t("search.placeholder"))
         self._pattern.returnPressed.connect(self._search)
         row.addWidget(self._pattern, 1)
 
         self._mode = QComboBox()
-        self._mode.addItems(["Texto", "Hex", "Regla YARA (-y fichero)"])
+        # El orden importa: 0=texto (-Y), 1=hex (-X), 2=regla YARA (-y).
+        self._mode.addItems([t("search.mode_text"), t("search.mode_hex"), t("search.mode_yara")])
         row.addWidget(self._mode)
 
-        self._search_btn = QPushButton("Buscar")
+        self._search_btn = QPushButton(t("search.btn"))
         self._search_btn.clicked.connect(self._search)
         row.addWidget(self._search_btn)
         layout.addLayout(row)
 
-        hint = QLabel(
-            "Texto: busca una cadena literal. Hex: bytes en hexadecimal. "
-            "Regla YARA: ruta a un fichero .yar."
-        )
+        hint = QLabel(t("search.hint"))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888;font-size:11px;")
         layout.addWidget(hint)
@@ -89,12 +88,12 @@ class SearchWidget(QWidget):
     def _build_args(self) -> Optional[list]:
         pattern = self._pattern.text().strip()
         if not pattern:
-            QMessageBox.warning(self, "Patrón vacío", "Introduce algo que buscar.")
+            QMessageBox.warning(self, t("search.empty_title"), t("search.empty_msg"))
             return None
-        mode = self._mode.currentText()
-        if mode.startswith("Texto"):
+        mode = self._mode.currentIndex()
+        if mode == 0:  # texto literal
             return ["-Y", pattern]
-        if mode.startswith("Hex"):
+        if mode == 1:  # bytes en hexadecimal
             return ["-X", pattern]
         return ["-y", pattern]  # fichero de reglas YARA
 
@@ -106,7 +105,7 @@ class SearchWidget(QWidget):
             return
         self._search_btn.setEnabled(False)
         self._progress.show()
-        self._output.setPlainText("Buscando...")
+        self._output.setPlainText(t("search.searching"))
         audit_log.log_plugin(self._plugin, self._runner.command_string(self._plugin, args))
         self._worker = self._runner.run_async(self._plugin, args)
         self._worker.finished_ok.connect(self._on_finished)
@@ -115,9 +114,9 @@ class SearchWidget(QWidget):
     def _on_finished(self, _plugin: str, output: str) -> None:
         self._progress.hide()
         self._search_btn.setEnabled(True)
-        self._output.setPlainText(output or "(sin coincidencias)")
+        self._output.setPlainText(output or t("search.no_matches"))
 
     def _on_failed(self, plugin: str, message: str) -> None:
         self._progress.hide()
         self._search_btn.setEnabled(True)
-        self._output.setPlainText(f"Error en {plugin}:\n{message}")
+        self._output.setPlainText(t("search.error", plugin=plugin, message=message))

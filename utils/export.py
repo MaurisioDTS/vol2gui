@@ -8,6 +8,9 @@ import json
 from datetime import datetime
 from typing import List
 
+from core import i18n
+from core.i18n import t
+
 
 def export_csv(path: str, headers: List[str], rows: List[List[str]]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as fh:
@@ -29,10 +32,11 @@ def export_json(path: str, headers: List[str], rows: List[List[str]]) -> None:
         json.dump(data, fh, ensure_ascii=False, indent=2)
 
 
-def export_html(path: str, headers: List[str], rows: List[List[str]], title: str = "Resultado") -> None:
+def export_html(path: str, headers: List[str], rows: List[List[str]], title: str = "") -> None:
+    title = title or t("export.html_title")
     parts: List[str] = [
         "<!DOCTYPE html>",
-        "<html lang='es'><head><meta charset='utf-8'>",
+        f"<html lang='{i18n.get_language()}'><head><meta charset='utf-8'>",
         f"<title>{html.escape(title)}</title>",
         "<style>",
         "body{font-family:Segoe UI,Arial,sans-serif;background:#1e1e1e;color:#ddd;margin:24px;}",
@@ -44,7 +48,7 @@ def export_html(path: str, headers: List[str], rows: List[List[str]], title: str
         "tr:nth-child(even){background:#252526;}",
         "</style></head><body>",
         f"<h1>{html.escape(title)}</h1>",
-        f"<div class='meta'>Generado: {datetime.now().isoformat(timespec='seconds')}</div>",
+        f"<div class='meta'>{html.escape(t('export.html_generated'))}: {datetime.now().isoformat(timespec='seconds')}</div>",
         "<table>",
     ]
     if headers:
@@ -58,4 +62,4 @@ def export_html(path: str, headers: List[str], rows: List[List[str]], title: str
 
 def file_filter() -> str:
     """Filtro para QFileDialog con los formatos soportados."""
-    return "CSV (*.csv);;JSON (*.json);;HTML (*.html);;Texto (*.txt)"
+    return t("export.filter")

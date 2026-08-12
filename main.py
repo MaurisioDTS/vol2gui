@@ -14,6 +14,7 @@ import sys
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
+from core import i18n
 from core.profiles import default_profiles_dir
 from core.runner import VolatilityError, VolatilityRunner
 from ui.image_loader import StartupDialog
@@ -25,7 +26,11 @@ from utils import audit_log
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Volatility 2 GUI")
+    app.setOrganizationName("vol2gui")
     app.setStyleSheet(DARK_QSS)
+
+    # Fija el idioma (persistido o detectado del sistema) antes de construir la UI.
+    i18n.init_language()
 
     audit_log.init_audit_log()
 
@@ -41,7 +46,7 @@ def main() -> int:
             profiles_dir=default_profiles_dir(),
         )
     except VolatilityError as exc:
-        QMessageBox.critical(None, "Error al iniciar", str(exc))
+        QMessageBox.critical(None, i18n.t("app.start_error_title"), str(exc))
         return 1
 
     window = MainWindow(runner, manual_profile=dialog.manual_profile)

@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import t
 from core.parser import parse_table
 from core.runner import PluginWorker, VolatilityRunner
 from utils import audit_log, export
@@ -65,21 +66,21 @@ class PluginOutputWidget(QWidget):
         layout = QVBoxLayout(self)
 
         top = QHBoxLayout()
-        self._run_btn = QPushButton(f"Ejecutar  {self._plugin}")
+        self._run_btn = QPushButton(t("plugin.run_btn", plugin=self._plugin))
         self._run_btn.clicked.connect(self.run_plugin)
         top.addWidget(self._run_btn)
 
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Filtrar resultados...")
+        self._filter.setPlaceholderText(t("plugin.filter_placeholder"))
         self._filter.textChanged.connect(self._apply_filter)
         top.addWidget(self._filter, 1)
 
-        self._raw_btn = QPushButton("Ver raw")
+        self._raw_btn = QPushButton(t("plugin.view_raw"))
         self._raw_btn.clicked.connect(self._show_raw)
         self._raw_btn.setEnabled(False)
         top.addWidget(self._raw_btn)
 
-        self._export_btn = QPushButton("Exportar")
+        self._export_btn = QPushButton(t("plugin.export"))
         self._export_btn.clicked.connect(self._export)
         self._export_btn.setEnabled(False)
         top.addWidget(self._export_btn)
@@ -97,7 +98,7 @@ class PluginOutputWidget(QWidget):
         self._progress.hide()
         layout.addWidget(self._progress)
 
-        self._status = QLabel("Pulsa «Ejecutar» para lanzar el plugin.")
+        self._status = QLabel(t("plugin.status_initial"))
         self._status.setStyleSheet("color:#4ec9b0;")
         layout.addWidget(self._status)
 
@@ -115,7 +116,7 @@ class PluginOutputWidget(QWidget):
         self._has_run = True
         self._run_btn.setEnabled(False)
         self._progress.show()
-        self._status.setText(f"Ejecutando {self._plugin}...")
+        self._status.setText(t("plugin.running", plugin=self._plugin))
 
         audit_log.log_plugin(
             self._plugin, self._runner.command_string(self._plugin, self._extra_args)
@@ -139,20 +140,20 @@ class PluginOutputWidget(QWidget):
         self._raw_btn.setEnabled(True)
         self._export_btn.setEnabled(bool(self._rows))
         n = len(self._rows)
-        self._status.setText(f"{plugin}: {n} fila(s).")
+        self._status.setText(t("plugin.rows", plugin=plugin, count=n))
         if n == 0 and output.strip():
-            self._status.setText(f"{plugin}: sin resultados tabulares (usa «Ver raw»).")
+            self._status.setText(t("plugin.no_table", plugin=plugin))
 
     def _on_failed(self, plugin: str, message: str) -> None:
         self._progress.hide()
         self._run_btn.setEnabled(True)
-        self._status.setText(f"Error en {plugin}.")
-        QMessageBox.warning(self, f"Error en {plugin}", message)
+        self._status.setText(t("common.error_in_plugin", plugin=plugin))
+        QMessageBox.warning(self, t("common.error_in_plugin", plugin=plugin), message)
 
     # ---------------------------------------------------------------- tabla --
     def _populate_table(self) -> None:
         self._table.setSortingEnabled(False)
-        headers = self._headers if self._headers else ["Salida"]
+        headers = self._headers if self._headers else [t("common.output_col")]
         self._table.setColumnCount(len(headers))
         self._table.setHorizontalHeaderLabels(headers)
         self._table.setRowCount(len(self._rows))
@@ -184,11 +185,11 @@ class PluginOutputWidget(QWidget):
         if not self._rows:
             return
         path, selected = QFileDialog.getSaveFileName(
-            self, "Exportar resultados", f"{self._plugin}.csv", export.file_filter()
+            self, t("plugin.export_title"), f"{self._plugin}.csv", export.file_filter()
         )
         if not path:
             return
-        headers = self._headers if self._headers else ["Salida"]
+        headers = self._headers if self._headers else [t("common.output_col")]
         try:
             if path.endswith(".json") or "JSON" in selected:
                 export.export_json(path, headers, self._rows)
@@ -200,9 +201,9 @@ class PluginOutputWidget(QWidget):
                 export.export_csv(path, headers, self._rows)
                 fmt = "csv"
             audit_log.log_export(fmt, path, len(self._rows))
-            self._status.setText(f"Exportado a {path}")
+            self._status.setText(t("plugin.exported_to", path=path))
         except OSError as exc:
-            QMessageBox.warning(self, "Error al exportar", str(exc))
+            QMessageBox.warning(self, t("plugin.export_error"), str(exc))
 
 
 class _RawDialog(QWidget):
@@ -210,7 +211,7 @@ class _RawDialog(QWidget):
 
     def __init__(self, plugin: str, raw: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent, Qt.Window)
-        self.setWindowTitle(f"Salida cruda - {plugin}")
+        self.setWindowTitle(t("plugin.raw_title", plugin=plugin))
         self.resize(800, 600)
         layout = QVBoxLayout(self)
         editor = QTextEdit()

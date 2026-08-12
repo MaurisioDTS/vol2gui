@@ -27,6 +27,10 @@ at memory forensics on ram images.
 - **custom profiles**: drop your volatility 2 profile `.zip` files into the
   `profiles/` folder and they are loaded automatically (`--plugins`) and offered
   in the profile dropdown for future investigations.
+- **bilingual ui (en/es)**: the whole interface is localized. on first launch the
+  language is auto-detected from the system locale; you can switch it (and it is
+  remembered) from the dropdown in the startup dialog. the audit log stays in a
+  fixed language on purpose, to keep chain-of-custody records stable.
 
 ## requirements
 
@@ -75,7 +79,8 @@ volatility2gui/
 │   ├── runner.py        # subprocess wrapper (sync + qthread)
 │   ├── parser.py        # volatility 2 text output parsers
 │   ├── profiles.py      # custom profiles dir + --info parsing
-│   └── profile.py       # os/profile detection from imageinfo
+│   ├── profile.py       # os/profile detection from imageinfo
+│   └── i18n.py          # localization (en/es): keys, detection, persistence
 ├── ui/                  # pyqt5 ui
 │   ├── main_window.py
 │   ├── image_loader.py

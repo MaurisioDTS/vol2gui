@@ -16,12 +16,29 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
 
+from core.i18n import t
+
 
 class OSType(str, Enum):
     WINDOWS = "Windows"
     LINUX = "Linux"
     MAC = "Mac"
     UNKNOWN = "Desconocido"
+
+
+# Clave i18n para cada SO; los nombres propios (Windows/Linux/Mac) son iguales
+# en ambos idiomas, sólo cambia "Desconocido"/"Unknown".
+_OS_I18N_KEY = {
+    OSType.WINDOWS: "os.windows",
+    OSType.LINUX: "os.linux",
+    OSType.MAC: "os.mac",
+    OSType.UNKNOWN: "os.unknown",
+}
+
+
+def os_label(os_type: "OSType") -> str:
+    """Etiqueta del SO en el idioma activo (para mostrar en la interfaz)."""
+    return t(_OS_I18N_KEY.get(os_type, "os.unknown"))
 
 
 @dataclass
@@ -95,11 +112,11 @@ MAC_DETECT_PLUGINS = ["mac_pslist"]
 
 def profile_summary(info: ProfileInfo) -> str:
     """Resumen legible para mostrar en la UI o en el log."""
-    lines = [f"Sistema operativo detectado: {info.os_type.value}"]
+    lines = [t("profile.os_detected", os=os_label(info.os_type))]
     if info.suggested_profiles:
-        lines.append("Perfiles sugeridos: " + ", ".join(info.suggested_profiles))
+        lines.append(t("profile.suggested", profiles=", ".join(info.suggested_profiles)))
     if info.selected_profile:
-        lines.append(f"Perfil seleccionado: {info.selected_profile}")
+        lines.append(t("profile.selected", profile=info.selected_profile))
     else:
-        lines.append("Sin perfil sugerido (puede requerir selección manual).")
+        lines.append(t("profile.none_suggested"))
     return "\n".join(lines)

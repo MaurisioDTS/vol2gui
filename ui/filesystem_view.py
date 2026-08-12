@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import t
 from core.parser import parse_table
 from core.runner import PluginWorker, VolatilityRunner
 from core.profile import OSType
@@ -142,31 +143,27 @@ class FilesystemView(QWidget):
         layout = QVBoxLayout(self)
 
         controls = QHBoxLayout()
-        self._load_btn = QPushButton(f"Enumerar ficheros ({self._config['enum_plugin']})")
+        self._load_btn = QPushButton(t("fs.enum_btn", plugin=self._config["enum_plugin"]))
         self._load_btn.clicked.connect(self.load)
         controls.addWidget(self._load_btn)
 
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Filtrar por nombre o ruta...")
+        self._filter.setPlaceholderText(t("fs.filter_placeholder"))
         self._filter.textChanged.connect(self._apply_filter)
         controls.addWidget(self._filter, 1)
 
-        self._preview_btn = QPushButton("Visualizar (hex/strings)")
+        self._preview_btn = QPushButton(t("fs.preview_btn"))
         self._preview_btn.clicked.connect(self._preview_selected)
         self._preview_btn.setEnabled(False)
         controls.addWidget(self._preview_btn)
 
-        self._extract_btn = QPushButton("Extraer seleccionado...")
+        self._extract_btn = QPushButton(t("fs.extract_btn"))
         self._extract_btn.clicked.connect(self._extract_selected)
         self._extract_btn.setEnabled(False)
         controls.addWidget(self._extract_btn)
         layout.addLayout(controls)
 
-        warn = QLabel(
-            "Esta vista NO extrae ficheros automáticamente. Selecciona un fichero "
-            "y pulsa «Visualizar» para inspeccionarlo (volcado temporal) o «Extraer» "
-            "para elegir dónde volcarlo de forma permanente."
-        )
+        warn = QLabel(t("fs.warn"))
         warn.setWordWrap(True)
         warn.setStyleSheet("color:#d7ba7d;font-size:11px;")
         layout.addWidget(warn)
@@ -176,7 +173,7 @@ class FilesystemView(QWidget):
         self._progress.hide()
         layout.addWidget(self._progress)
 
-        self._status = QLabel("Pulsa «Enumerar ficheros» para construir el árbol.")
+        self._status = QLabel(t("fs.status_initial"))
         self._status.setStyleSheet("color:#4ec9b0;")
         layout.addWidget(self._status)
 
@@ -185,7 +182,7 @@ class FilesystemView(QWidget):
 
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(
-            ["Identificador (offset/inodo)", "Nombre", "Tamaño", "Modificado"]
+            [t("fs.col_identifier"), t("fs.col_name"), t("fs.col_size"), t("fs.col_modified")]
         )
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -206,7 +203,7 @@ class FilesystemView(QWidget):
         self._load_btn.setEnabled(False)
         self._progress.show()
         plugin = self._config["enum_plugin"]
-        self._status.setText(f"Enumerando ficheros con {plugin} (puede tardar)...")
+        self._status.setText(t("fs.enumerating", plugin=plugin))
         audit_log.log_plugin(plugin, self._runner.command_string(plugin))
         self._worker = self._runner.run_async(plugin)
         self._worker.finished_ok.connect(self._on_enum_finished)
@@ -225,7 +222,7 @@ class FilesystemView(QWidget):
         size_idx = self._find_col(headers, self._config.get("size_headers", []))
         mtime_idx = self._find_col(headers, self._config.get("mtime_headers", []))
         if path_idx < 0:
-            self._status.setText("No se pudo interpretar la salida (usa la pestaña de artefactos).")
+            self._status.setText(t("fs.parse_failed"))
             return
         entries = []
         for row in rows:
@@ -238,13 +235,13 @@ class FilesystemView(QWidget):
             if path:
                 entries.append((path, identifier, size, mtime))
         self._build_tree(entries)
-        self._status.setText(f"{len(entries)} ficheros enumerados.")
+        self._status.setText(t("fs.enumerated", count=len(entries)))
 
     def _on_failed(self, plugin: str, message: str) -> None:
         self._progress.hide()
         self._load_btn.setEnabled(True)
-        self._status.setText(f"Error en {plugin}.")
-        QMessageBox.warning(self, f"Error en {plugin}", message)
+        self._status.setText(t("common.error_in_plugin", plugin=plugin))
+        QMessageBox.warning(self, t("common.error_in_plugin", plugin=plugin), message)
 
     @staticmethod
     def _find_col(headers: List[str], candidates: List[str]) -> int:
@@ -377,8 +374,8 @@ class FilesystemView(QWidget):
         if item is None or not item.data(0, _ROLE_IS_FILE):
             return
         menu = QMenu(self)
-        preview_action = menu.addAction("Visualizar (hex/strings)")
-        extract_action = menu.addAction("Extraer este fichero...")
+        preview_action = menu.addAction(t("fs.ctx_preview"))
+        extract_action = menu.addAction(t("fs.ctx_extract"))
         chosen = menu.exec_(self._tree.viewport().mapToGlobal(pos))
         if chosen == preview_action:
             self._preview_item(item)
@@ -396,18 +393,18 @@ class FilesystemView(QWidget):
         if not dump_plugin:
             QMessageBox.information(
                 self,
-                "No soportado",
-                "La extracción individual de ficheros no está soportada para este SO en Volatility 2.",
+                t("fs.not_supported_title"),
+                t("fs.extract_not_supported"),
             )
             return
 
         identifier = item.data(0, _ROLE_IDENTIFIER) or ""
         full_path = item.data(0, _ROLE_FULLPATH) or item.text(_COL_NAME)
-        suggested_name = os.path.basename(full_path.replace("\\", "/")) or "extraido.bin"
+        suggested_name = os.path.basename(full_path.replace("\\", "/")) or t("fs.default_extract_name")
 
         if self._config["dump_mode"] == "dir":
             dest_dir = QFileDialog.getExistingDirectory(
-                self, "Elegir carpeta de destino para la extracción"
+                self, t("fs.choose_dest_dir")
             )
             if not dest_dir:
                 return
@@ -415,7 +412,7 @@ class FilesystemView(QWidget):
             destination = dest_dir
         else:  # mode == "file"
             dest_file, _ = QFileDialog.getSaveFileName(
-                self, "Guardar fichero extraído como", suggested_name
+                self, t("fs.save_extracted_as"), suggested_name
             )
             if not dest_file:
                 return
@@ -423,10 +420,10 @@ class FilesystemView(QWidget):
             destination = dest_file
 
         if not identifier:
-            QMessageBox.warning(self, "Sin identificador", "Este fichero no tiene offset/inodo para extraer.")
+            QMessageBox.warning(self, t("fs.no_identifier_title"), t("fs.no_identifier_extract"))
             return
 
-        self._status.setText(f"Extrayendo {suggested_name}...")
+        self._status.setText(t("fs.extracting", name=suggested_name))
         self._progress.show()
         audit_log.log_extraction(
             dump_plugin, destination, target=full_path
@@ -439,11 +436,11 @@ class FilesystemView(QWidget):
     def _make_extract_handler(self, name: str, destination: str):
         def handler(_plugin: str, output: str) -> None:
             self._progress.hide()
-            self._status.setText(f"Extracción finalizada: {name} -> {destination}")
+            self._status.setText(t("fs.extract_done_status", name=name, dest=destination))
             QMessageBox.information(
                 self,
-                "Extracción completada",
-                f"Fichero: {name}\nDestino: {destination}\n\nSalida del plugin:\n{output[:500]}",
+                t("fs.extract_done_title"),
+                t("fs.extract_done_body", name=name, dest=destination, output=output[:500]),
             )
         return handler
 
@@ -463,21 +460,20 @@ class FilesystemView(QWidget):
         if not dump_plugin:
             QMessageBox.information(
                 self,
-                "No soportado",
-                "La visualización individual de ficheros no está soportada para "
-                "este SO en Volatility 2.",
+                t("fs.not_supported_title"),
+                t("fs.preview_not_supported"),
             )
             return
 
         identifier = item.data(0, _ROLE_IDENTIFIER) or ""
         if not identifier:
             QMessageBox.warning(
-                self, "Sin identificador", "Este fichero no tiene offset/inodo para volcar."
+                self, t("fs.no_identifier_title"), t("fs.no_identifier_dump")
             )
             return
 
         full_path = item.data(0, _ROLE_FULLPATH) or item.text(_COL_NAME)
-        name = os.path.basename(full_path.replace("\\", "/")) or "previsualizacion.bin"
+        name = os.path.basename(full_path.replace("\\", "/")) or t("fs.default_preview_name")
 
         # Limpia volcados temporales previos (su contenido ya está en memoria).
         self._cleanup_temp_dirs()
@@ -492,7 +488,7 @@ class FilesystemView(QWidget):
             target = os.path.join(tmp_dir, name)
             extra = _build_dump_extra(self._config, identifier, target)
 
-        self._status.setText(f"Volcando {name} (temporal) para previsualizar...")
+        self._status.setText(t("fs.dumping_preview", name=name))
         self._progress.show()
         audit_log.log_action(
             f"PREVISUALIZACIÓN: {full_path} | volcado temporal en {tmp_dir}"
@@ -511,12 +507,12 @@ class FilesystemView(QWidget):
 
     def _on_preview_loaded(self, name: str) -> None:
         self._progress.hide()
-        self._status.setText(f"Previsualizando {name} (bytes en memoria).")
+        self._status.setText(t("fs.previewing", name=name))
 
     def _on_preview_failed(self, plugin: str, message: str) -> None:
         self._progress.hide()
-        self._status.setText("No se pudo previsualizar.")
-        QMessageBox.information(self, f"Error en {plugin}", message)
+        self._status.setText(t("fs.preview_failed"))
+        QMessageBox.information(self, t("common.error_in_plugin", plugin=plugin), message)
 
     def _cleanup_temp_dirs(self) -> None:
         for path in self._temp_dirs:

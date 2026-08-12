@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Callable, List, Optional
 if TYPE_CHECKING:
     from core.runner import PluginWorker, VolatilityRunner
 
+from core.i18n import t
+
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -62,14 +64,14 @@ class HexViewer(QWidget):
         layout = QVBoxLayout(self)
 
         top = QHBoxLayout()
-        self._title_label = QLabel("Sin contenido")
+        self._title_label = QLabel(t("hex.no_content"))
         self._title_label.setStyleSheet("color:#4ec9b0;")
         self._title_label.setWordWrap(True)
         top.addWidget(self._title_label, 1)
 
-        top.addWidget(QLabel("Vista:"))
+        top.addWidget(QLabel(t("hex.view_label")))
         self._mode = QComboBox()
-        self._mode.addItems(["Hexadecimal", "Texto (strings)", "Ambos"])
+        self._mode.addItems([t("hex.mode_hex"), t("hex.mode_strings"), t("hex.mode_both")])
         self._mode.currentIndexChanged.connect(lambda _idx: self._render())
         top.addWidget(self._mode)
         layout.addLayout(top)
@@ -88,7 +90,7 @@ class HexViewer(QWidget):
         self._data = b""
         self._title = ""
         self._truncated = False
-        self._title_label.setText("Sin contenido")
+        self._title_label.setText(t("hex.no_content"))
         self._editor.clear()
 
     def load_bytes(self, data: bytes, title: str = "") -> None:
@@ -109,7 +111,7 @@ class HexViewer(QWidget):
         except OSError as exc:
             self._data = b""
             self._truncated = False
-            self._title_label.setText(f"Error al leer: {exc}")
+            self._title_label.setText(t("hex.read_error", error=exc))
             self._editor.clear()
             return
         self.load_bytes(data, title or os.path.basename(path))
@@ -121,13 +123,13 @@ class HexViewer(QWidget):
         """
         if not path or not os.path.isfile(path):
             self.clear()
-            return "El volcado no produjo un fichero legible."
+            return t("hex.no_readable_dump")
         try:
             with open(path, "rb") as handle:
                 data = handle.read()
         except OSError as exc:
             self.clear()
-            return f"No se pudo leer el fichero volcado: {exc}"
+            return t("hex.dump_read_error", error=exc)
         self.load_bytes(data, title=title)
         return None
 
@@ -174,7 +176,7 @@ class HexViewer(QWidget):
             err = self.load_from_dump_path(path, title=title)
             if err:
                 if on_failed:
-                    on_failed(_plugin, f"{err}\n\nSalida del plugin:\n{output[:500]}")
+                    on_failed(_plugin, f"{err}\n\n{t('common.plugin_output')}:\n{output[:500]}")
             elif on_loaded:
                 on_loaded(title)
 
@@ -186,10 +188,10 @@ class HexViewer(QWidget):
 
     # -------------------------------------------------------------- render --
     def _update_title(self) -> None:
-        name = self._title or "(sin nombre)"
+        name = self._title or t("hex.no_name")
         size = len(self._data)
-        suffix = " (truncado)" if self._truncated else ""
-        self._title_label.setText(f"{name}  -  {size} bytes mostrados{suffix}")
+        suffix = t("hex.truncated") if self._truncated else ""
+        self._title_label.setText(t("hex.bytes_shown", name=name, size=size, suffix=suffix))
 
     def _render(self) -> None:
         mode = self._mode.currentIndex()
@@ -199,9 +201,9 @@ class HexViewer(QWidget):
             text = self._to_strings(self._data, self._min_string_len)
         else:
             text = (
-                "=== HEXADECIMAL ===\n"
+                t("hex.section_hex") + "\n"
                 + self._to_hex(self._data)
-                + "\n\n=== CADENAS (strings) ===\n"
+                + "\n\n" + t("hex.section_strings") + "\n"
                 + self._to_strings(self._data, self._min_string_len)
             )
         self._editor.setPlainText(text)
@@ -210,7 +212,7 @@ class HexViewer(QWidget):
     def _to_hex(data: bytes, width: int = 16) -> str:
         """Genera un volcado hexadecimal clásico con offset, bytes y ASCII."""
         if not data:
-            return "(vacío)"
+            return t("hex.empty")
         lines: List[str] = []
         for offset in range(0, len(data), width):
             chunk = data[offset : offset + width]
@@ -230,7 +232,7 @@ class HexViewer(QWidget):
     def _to_strings(data: bytes, min_len: int = 4) -> str:
         """Extrae secuencias de caracteres imprimibles (estilo ``strings``)."""
         if not data:
-            return "(vacío)"
+            return t("hex.empty")
         result: List[str] = []
         current: List[str] = []
         for byte in data:
@@ -242,4 +244,4 @@ class HexViewer(QWidget):
                 current = []
         if len(current) >= min_len:
             result.append("".join(current))
-        return "\n".join(result) if result else "(sin cadenas imprimibles)"
+        return "\n".join(result) if result else t("hex.no_printable")

@@ -10,19 +10,19 @@ from core.runner import VolatilityRunner
 from ui.artifacts.base import ArtifactSpec, ArtifactTab
 
 MAC_ARTIFACTS: list[ArtifactSpec] = [
-    ("Historial bash", "mac_bash", [], "Historial de comandos bash en memoria."),
-    ("Conexiones (netstat)", "mac_netstat", [], "Conexiones de red activas."),
-    ("Interfaces (ifconfig)", "mac_ifconfig", [], "Configuración de interfaces de red."),
-    ("Extensiones kernel", "mac_lsmod", [], "Extensiones del kernel cargadas (kext)."),
-    ("Syscall hooks", "mac_check_syscall", [], "Detección de hooks en la tabla de syscalls."),
-    ("TrustedBSD", "mac_trustedbsd", [], "Hooks de política de seguridad TrustedBSD (rootkits)."),
-    ("Mapas dyld", "mac_dyld_maps", [], "Librerías dinámicas cargadas por proceso."),
-    ("Ficheros abiertos", "mac_lsof", [], "Descriptores de fichero abiertos por proceso."),
-    ("Variables de entorno", "mac_psenv", [], "Variables de entorno por proceso."),
-    ("Lista de ficheros", "mac_list_files", [], "Ficheros referenciados en el caché de la imagen."),
-    ("ARP", "mac_arp", [], "Tabla ARP."),
-    ("Rutas de red", "mac_route", [], "Tabla de rutas de red."),
-    ("Notifiers", "mac_notifiers", [], "Notification callbacks (posibles hooks)."),
+    ("art.mac.bash.label", "mac_bash", [], "art.mac.bash.desc"),
+    ("art.mac.netstat.label", "mac_netstat", [], "art.mac.netstat.desc"),
+    ("art.mac.ifconfig.label", "mac_ifconfig", [], "art.mac.ifconfig.desc"),
+    ("art.mac.lsmod.label", "mac_lsmod", [], "art.mac.lsmod.desc"),
+    ("art.mac.check_syscall.label", "mac_check_syscall", [], "art.mac.check_syscall.desc"),
+    ("art.mac.trustedbsd.label", "mac_trustedbsd", [], "art.mac.trustedbsd.desc"),
+    ("art.mac.dyld_maps.label", "mac_dyld_maps", [], "art.mac.dyld_maps.desc"),
+    ("art.mac.lsof.label", "mac_lsof", [], "art.mac.lsof.desc"),
+    ("art.mac.psenv.label", "mac_psenv", [], "art.mac.psenv.desc"),
+    ("art.mac.list_files.label", "mac_list_files", [], "art.mac.list_files.desc"),
+    ("art.mac.arp.label", "mac_arp", [], "art.mac.arp.desc"),
+    ("art.mac.route.label", "mac_route", [], "art.mac.route.desc"),
+    ("art.mac.notifiers.label", "mac_notifiers", [], "art.mac.notifiers.desc"),
 ]
 
 

@@ -10,20 +10,20 @@ from core.runner import VolatilityRunner
 from ui.artifacts.base import ArtifactSpec, ArtifactTab
 
 LINUX_ARTIFACTS: list[ArtifactSpec] = [
-    ("Historial bash", "linux_bash", [], "Historial de comandos bash recuperado de memoria."),
-    ("Procesos (psaux)", "linux_psaux", [], "Procesos con su línea de comandos completa."),
-    ("Conexiones (netstat)", "linux_netstat", [], "Conexiones de red activas."),
-    ("Interfaces (ifconfig)", "linux_ifconfig", [], "Configuración de interfaces de red."),
-    ("Módulos kernel (lsmod)", "linux_lsmod", [], "Módulos del kernel cargados."),
-    ("Syscall hooks", "linux_check_syscall", [], "Detección de hooks en la tabla de syscalls (rootkits)."),
-    ("Creds sospechosas", "linux_check_creds", [], "Procesos que comparten credenciales (posible escalada)."),
-    ("Puntos de montaje", "linux_mount", [], "Sistemas de ficheros montados."),
-    ("dmesg", "linux_dmesg", [], "Buffer de mensajes del kernel (dmesg)."),
-    ("Ficheros abiertos", "linux_lsof", [], "Descriptores de fichero abiertos por proceso."),
-    ("Librerías (proc_maps)", "linux_proc_maps", [], "Regiones de memoria mapeadas por proceso."),
-    ("Módulos ocultos", "linux_hidden_modules", [], "Módulos del kernel ocultos (rootkits)."),
-    ("ARP / Route", "linux_route_cache", [], "Caché de rutas de red."),
-    ("Variables de entorno", "linux_psenv", [], "Variables de entorno por proceso."),
+    ("art.linux.bash.label", "linux_bash", [], "art.linux.bash.desc"),
+    ("art.linux.psaux.label", "linux_psaux", [], "art.linux.psaux.desc"),
+    ("art.linux.netstat.label", "linux_netstat", [], "art.linux.netstat.desc"),
+    ("art.linux.ifconfig.label", "linux_ifconfig", [], "art.linux.ifconfig.desc"),
+    ("art.linux.lsmod.label", "linux_lsmod", [], "art.linux.lsmod.desc"),
+    ("art.linux.check_syscall.label", "linux_check_syscall", [], "art.linux.check_syscall.desc"),
+    ("art.linux.check_creds.label", "linux_check_creds", [], "art.linux.check_creds.desc"),
+    ("art.linux.mount.label", "linux_mount", [], "art.linux.mount.desc"),
+    ("art.linux.dmesg.label", "linux_dmesg", [], "art.linux.dmesg.desc"),
+    ("art.linux.lsof.label", "linux_lsof", [], "art.linux.lsof.desc"),
+    ("art.linux.proc_maps.label", "linux_proc_maps", [], "art.linux.proc_maps.desc"),
+    ("art.linux.hidden_modules.label", "linux_hidden_modules", [], "art.linux.hidden_modules.desc"),
+    ("art.linux.route_cache.label", "linux_route_cache", [], "art.linux.route_cache.desc"),
+    ("art.linux.psenv.label", "linux_psenv", [], "art.linux.psenv.desc"),
 ]
 
 

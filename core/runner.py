@@ -15,6 +15,7 @@ from typing import List, Optional
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
+from core.i18n import t
 from core.profiles import has_profiles, parse_info_profiles
 
 
@@ -40,7 +41,7 @@ class VolatilityRunner:
     ) -> None:
         self.binary_path = os.path.abspath(binary_path)
         if not os.path.isfile(self.binary_path):
-            raise VolatilityError(f"No se encontró el binario: {self.binary_path}")
+            raise VolatilityError(t("runner.binary_not_found", path=self.binary_path))
         self.image_path = image_path
         self.profile = profile
         self.profiles_dir = os.path.abspath(profiles_dir) if profiles_dir else None
@@ -108,10 +109,10 @@ class VolatilityRunner:
                 check=False,
             )
         except FileNotFoundError as exc:  # pragma: no cover - defensivo
-            raise VolatilityError(f"No se pudo ejecutar el binario: {exc}") from exc
+            raise VolatilityError(t("runner.cannot_run", error=exc)) from exc
         except subprocess.TimeoutExpired as exc:
             raise VolatilityError(
-                f"El plugin '{plugin}' superó el tiempo límite ({timeout}s)."
+                t("runner.timeout", plugin=plugin, timeout=timeout)
             ) from exc
 
         stdout = proc.stdout.decode("utf-8", errors="replace")
@@ -169,7 +170,7 @@ class PluginWorker(QThread):
         except VolatilityError as exc:
             self.failed.emit(self._plugin, str(exc))
         except Exception as exc:  # pragma: no cover - defensivo
-            self.failed.emit(self._plugin, f"Error inesperado: {exc}")
+            self.failed.emit(self._plugin, t("runner.unexpected", error=exc))
 
 
 class ProfileListWorker(QThread):

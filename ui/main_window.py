@@ -19,7 +19,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.profile import OSType, ProfileInfo
+from core.i18n import t
+from core.profile import OSType, ProfileInfo, os_label
 from core.runner import VolatilityRunner
 from ui.artifacts.linux_tab import LinuxArtifactsTab
 from ui.artifacts.mac_tab import MacArtifactsTab
@@ -48,7 +49,7 @@ class MainWindow(QMainWindow):
             self._runner.profile = manual_profile
         self._os_tabs_built = False
 
-        self.setWindowTitle("Volatility 2 GUI - Análisis forense de memoria")
+        self.setWindowTitle(t("main.window_title"))
         self.resize(1200, 760)
         self.setStyleSheet(DARK_QSS)
 
@@ -56,14 +57,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._tabs)
 
         self.statusBar().showMessage(
-            f"Imagen: {os.path.basename(runner.image_path or '')}  |  "
-            f"Binario: {os.path.basename(runner.binary_path)}"
+            t(
+                "main.status",
+                image=os.path.basename(runner.image_path or ""),
+                binary=os.path.basename(runner.binary_path),
+            )
         )
 
         # Pestaña de reporte (siempre la primera).
         self._report = ImageReportWidget(self._runner)
         self._report.profile_detected.connect(self._on_profile_detected)
-        self._tabs.addTab(self._report, "Reporte")
+        self._tabs.addTab(self._report, t("main.tab_report"))
 
         self._report.start()
 
@@ -82,9 +86,7 @@ class MainWindow(QMainWindow):
         if self._os_tabs_built:
             return
         if info.os_type == OSType.UNKNOWN:
-            self.statusBar().showMessage(
-                "SO no detectado automáticamente. Aplica un perfil manual en la pestaña Reporte."
-            )
+            self.statusBar().showMessage(t("main.os_not_detected"))
             return
         self._build_os_tabs(info)
 
@@ -99,11 +101,11 @@ class MainWindow(QMainWindow):
 
         # Procesos.
         self._process_view = ProcessView(self._runner, os_type)
-        self._tabs.addTab(self._process_view, "Procesos")
+        self._tabs.addTab(self._process_view, t("main.tab_processes"))
 
         # Sistema de ficheros.
         self._fs_view = FilesystemView(self._runner, os_type)
-        self._tabs.addTab(self._fs_view, "Sistema de ficheros")
+        self._tabs.addTab(self._fs_view, t("main.tab_filesystem"))
 
         # Artefactos según SO.
         if os_type == OSType.WINDOWS:
@@ -112,22 +114,26 @@ class MainWindow(QMainWindow):
             artifacts = LinuxArtifactsTab(self._runner)
         else:
             artifacts = MacArtifactsTab(self._runner)
-        self._tabs.addTab(artifacts, f"Artefactos {os_type.value}")
+        self._tabs.addTab(artifacts, t("main.tab_artifacts", os=os_label(os_type)))
 
         # Búsqueda de cadenas.
         self._search = SearchWidget(self._runner, os_type)
-        self._tabs.addTab(self._search, "Búsqueda")
+        self._tabs.addTab(self._search, t("main.tab_search"))
 
         # Auto-scan de malware.
         self._autoscan = AutoScanWidget(self._runner, os_type)
-        self._tabs.addTab(self._autoscan, "Auto-scan")
+        self._tabs.addTab(self._autoscan, t("main.tab_autoscan"))
 
         # Carga perezosa al cambiar de pestaña.
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         self.statusBar().showMessage(
-            f"SO: {os_type.value}  |  Perfil: {self._runner.profile or '(sin perfil)'}  |  "
-            f"Imagen: {os.path.basename(self._runner.image_path or '')}"
+            t(
+                "main.status_full",
+                os=os_label(os_type),
+                profile=self._runner.profile or t("main.no_profile"),
+                image=os.path.basename(self._runner.image_path or ""),
+            )
         )
 
     def _on_tab_changed(self, index: int) -> None:
