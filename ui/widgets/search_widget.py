@@ -47,6 +47,7 @@ class SearchWidget(QWidget):
         self._runner = runner
         self._plugin = _YARA_PLUGIN.get(os_type, "yarascan")
         self._worker: Optional[PluginWorker] = None
+        self._search_token = 0
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -67,6 +68,11 @@ class SearchWidget(QWidget):
         self._search_btn = QPushButton(t("search.btn"))
         self._search_btn.clicked.connect(self._search)
         row.addWidget(self._search_btn)
+
+        self._cancel_btn = QPushButton(t("search.cancel_btn"))
+        self._cancel_btn.clicked.connect(self._cancel_search)
+        self._cancel_btn.setEnabled(False)
+        row.addWidget(self._cancel_btn)
         layout.addLayout(row)
 
         hint = QLabel(t("search.hint"))
@@ -97,26 +103,61 @@ class SearchWidget(QWidget):
             return ["-X", pattern]
         return ["-y", pattern]  # fichero de reglas YARA
 
+    def _set_searching(self, active: bool) -> None:
+        self._search_btn.setEnabled(not active)
+        self._cancel_btn.setEnabled(active)
+        self._pattern.setEnabled(not active)
+        self._mode.setEnabled(not active)
+        if active:
+            self._progress.show()
+        else:
+            self._progress.hide()
+
     def _search(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
         args = self._build_args()
         if args is None:
             return
-        self._search_btn.setEnabled(False)
-        self._progress.show()
+        self._search_token += 1
+        token = self._search_token
+        self._set_searching(True)
         self._output.setPlainText(t("search.searching"))
         audit_log.log_plugin(self._plugin, self._runner.command_string(self._plugin, args))
         self._worker = self._runner.run_async(self._plugin, args)
-        self._worker.finished_ok.connect(self._on_finished)
-        self._worker.failed.connect(self._on_failed)
+        self._worker.finished_ok.connect(
+            lambda plugin, output: self._on_finished(plugin, output, token)
+        )
+        self._worker.failed.connect(
+            lambda plugin, message: self._on_failed(plugin, message, token)
+        )
+        self._worker.cancelled.connect(
+            lambda plugin: self._on_cancelled(plugin, token)
+        )
 
-    def _on_finished(self, _plugin: str, output: str) -> None:
-        self._progress.hide()
-        self._search_btn.setEnabled(True)
+    def _cancel_search(self) -> None:
+        if self._worker is None:
+            return
+        self._search_token += 1
+        audit_log.log_action(f"BÚSQUEDA cancelada: {self._plugin}")
+        self._worker.cancel()
+        self._set_searching(False)
+        self._output.setPlainText(t("search.cancelled"))
+
+    def _on_finished(self, _plugin: str, output: str, token: int) -> None:
+        if token != self._search_token:
+            return
+        self._set_searching(False)
         self._output.setPlainText(output or t("search.no_matches"))
 
-    def _on_failed(self, plugin: str, message: str) -> None:
-        self._progress.hide()
-        self._search_btn.setEnabled(True)
+    def _on_failed(self, plugin: str, message: str, token: int) -> None:
+        if token != self._search_token:
+            return
+        self._set_searching(False)
         self._output.setPlainText(t("search.error", plugin=plugin, message=message))
+
+    def _on_cancelled(self, _plugin: str, token: int) -> None:
+        if token != self._search_token:
+            return
+        self._set_searching(False)
+        self._output.setPlainText(t("search.cancelled"))

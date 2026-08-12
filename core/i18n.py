@@ -283,6 +283,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "search.mode_hex": {"es": "Hex", "en": "Hex"},
     "search.mode_yara": {"es": "Regla YARA (-y fichero)", "en": "YARA rule (-y file)"},
     "search.btn": {"es": "Buscar", "en": "Search"},
+    "search.cancel_btn": {"es": "Cancelar", "en": "Cancel"},
     "search.hint": {
         "es": (
             "Texto: busca una cadena literal. Hex: bytes en hexadecimal. "
@@ -296,6 +297,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "search.empty_title": {"es": "Patrón vacío", "en": "Empty pattern"},
     "search.empty_msg": {"es": "Introduce algo que buscar.", "en": "Enter something to search."},
     "search.searching": {"es": "Buscando...", "en": "Searching..."},
+    "search.cancelled": {"es": "Búsqueda cancelada.", "en": "Search cancelled."},
     "search.no_matches": {"es": "(sin coincidencias)", "en": "(no matches)"},
     "search.error": {
         "es": "Error en {plugin}:\n{message}",

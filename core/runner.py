@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import signal
 import subprocess
 from typing import List, Optional
 
@@ -149,6 +150,7 @@ class PluginWorker(QThread):
 
     finished_ok = pyqtSignal(str, str)  # (plugin, salida)
     failed = pyqtSignal(str, str)  # (plugin, mensaje de error)
+    cancelled = pyqtSignal(str)  # plugin
 
     def __init__(
         self,
@@ -162,15 +164,83 @@ class PluginWorker(QThread):
         self._plugin = plugin
         self._extra_args = extra_args
         self._timeout = timeout
+        self._proc: Optional[subprocess.Popen] = None
+        self._cancelled = False
+
+    @staticmethod
+    def _terminate_proc(proc: Optional[subprocess.Popen]) -> None:
+        """Mata el subproceso y, si puede, todo su grupo (p. ej. forks de Volatility)."""
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            if hasattr(os, "killpg"):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            else:
+                proc.kill()
+        except (ProcessLookupError, OSError):
+            try:
+                proc.kill()
+            except (ProcessLookupError, OSError):
+                pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+
+    def cancel(self) -> None:
+        """Interrumpe la ejecución del plugin matando el subproceso."""
+        if self._cancelled:
+            return
+        self._cancelled = True
+        self._terminate_proc(self._proc)
 
     def run(self) -> None:  # noqa: D401 - override de QThread
+        if self._cancelled:
+            self.cancelled.emit(self._plugin)
+            return
+        cmd = self._runner.build_command(self._plugin, self._extra_args)
+        stdout = b""
+        stderr = b""
         try:
-            output = self._runner.run(self._plugin, self._extra_args, self._timeout)
-            self.finished_ok.emit(self._plugin, output)
-        except VolatilityError as exc:
-            self.failed.emit(self._plugin, str(exc))
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+            if self._cancelled:
+                self._terminate_proc(self._proc)
+                self.cancelled.emit(self._plugin)
+                return
+            stdout, stderr = self._proc.communicate(timeout=self._timeout)
+        except FileNotFoundError as exc:
+            self.failed.emit(self._plugin, t("runner.cannot_run", error=exc))
+            return
+        except subprocess.TimeoutExpired:
+            self._terminate_proc(self._proc)
+            self.failed.emit(
+                self._plugin,
+                t("runner.timeout", plugin=self._plugin, timeout=self._timeout),
+            )
+            return
         except Exception as exc:  # pragma: no cover - defensivo
-            self.failed.emit(self._plugin, t("runner.unexpected", error=exc))
+            if self._cancelled:
+                self.cancelled.emit(self._plugin)
+            else:
+                self.failed.emit(self._plugin, t("runner.unexpected", error=exc))
+            return
+        finally:
+            self._proc = None
+
+        if self._cancelled:
+            self.cancelled.emit(self._plugin)
+            return
+
+        out = stdout.decode("utf-8", errors="replace")
+        err = stderr.decode("utf-8", errors="replace")
+        if not out.strip() and err.strip():
+            out = err
+        self.finished_ok.emit(self._plugin, out)
 
 
 class ProfileListWorker(QThread):
