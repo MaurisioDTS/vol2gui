@@ -50,15 +50,16 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
     "startup.hint": {
         "es": (
-            "El perfil puede dejarse vacío: se detectará con «imageinfo». "
+            "El perfil puede dejarse en «(ninguno)»: se detectará con «imageinfo». "
             "Para Linux/Mac suele ser necesario indicarlo manualmente. Los "
-            "perfiles guardados en la carpeta «profiles/» se cargan "
-            "automáticamente en este desplegable."
+            "perfiles de la carpeta «profiles/» aparecen en este desplegable, "
+            "pero sólo se aplican si los eliges."
         ),
         "en": (
-            "The profile can be left empty: it will be detected with \"imageinfo\". "
-            "For Linux/Mac you usually need to set it manually. Profiles stored in "
-            "the \"profiles/\" folder are loaded automatically into this dropdown."
+            "The profile can be left as \"(none)\": it will be detected with \"imageinfo\". "
+            "For Linux/Mac you usually need to set it manually. Profiles from the "
+            "\"profiles/\" folder appear in this dropdown, but they are only applied "
+            "if you select them."
         ),
     },
     "startup.load_btn": {"es": "Cargar", "en": "Load"},
@@ -98,6 +99,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
     "report.active_profile": {"es": "Perfil activo:", "en": "Active profile:"},
     "report.apply_profile": {"es": "Aplicar perfil", "en": "Apply profile"},
+    "report.clear_profile": {"es": "Quitar perfil", "en": "Clear profile"},
     "report.summary_image": {"es": "Imagen", "en": "Image"},
     "report.computing": {"es": "(calculando...)", "en": "(computing...)"},
 
@@ -663,6 +665,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
     "profile.suggested": {"es": "Perfiles sugeridos: {profiles}", "en": "Suggested profiles: {profiles}"},
     "profile.selected": {"es": "Perfil seleccionado: {profile}", "en": "Selected profile: {profile}"},
+    "profile.none_applied": {
+        "es": "Ningún perfil aplicado.",
+        "en": "No profile applied.",
+    },
     "profile.none_suggested": {
         "es": "Sin perfil sugerido (puede requerir selección manual).",
         "en": "No suggested profile (manual selection may be required).",

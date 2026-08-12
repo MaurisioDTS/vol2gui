@@ -117,6 +117,8 @@ def profile_summary(info: ProfileInfo) -> str:
         lines.append(t("profile.suggested", profiles=", ".join(info.suggested_profiles)))
     if info.selected_profile:
         lines.append(t("profile.selected", profile=info.selected_profile))
+    elif info.suggested_profiles:
+        lines.append(t("profile.none_applied"))
     else:
         lines.append(t("profile.none_suggested"))
     return "\n".join(lines)

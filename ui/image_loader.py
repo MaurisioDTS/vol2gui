@@ -39,6 +39,33 @@ from core.runner import PluginWorker, ProfileListWorker, VolatilityError, Volati
 from utils import audit_log
 
 
+def _combo_profile(combo: QComboBox) -> str:
+    """Perfil elegido en el combo, o cadena vacía si el usuario no eligió ninguno."""
+    text = combo.currentText().strip()
+    if not text or text == t("common.none"):
+        return ""
+    return text
+
+
+def _ensure_none_profile_item(combo: QComboBox) -> None:
+    """Deja «(ninguno)» como primer ítem para que Qt no auto-seleccione un perfil."""
+    label = t("common.none")
+    if combo.count() == 0:
+        combo.addItem(label)
+        return
+    if combo.itemText(0) != label:
+        combo.insertItem(0, label)
+
+
+def _select_none_profile(combo: QComboBox) -> None:
+    """Deja el combo sin perfil aplicado (ítem «ninguno» o texto vacío)."""
+    _ensure_none_profile_item(combo)
+    combo.setCurrentIndex(0)
+    line = combo.lineEdit()
+    if line is not None:
+        line.setText(t("common.none"))
+
+
 def _default_binary() -> str:
     """Ruta por defecto del binario: ``volatility`` junto a la app."""
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -107,6 +134,8 @@ class StartupDialog(QDialog):
 
         self._profile = QComboBox()
         self._profile.setEditable(True)
+        self._profile.setInsertPolicy(QComboBox.NoInsert)
+        self._profile.addItem("")
         self._profile_label = QLabel()
         form.addRow(self._profile_label, self._profile)
 
@@ -129,6 +158,9 @@ class StartupDialog(QDialog):
         self._binary_label.setText(t("startup.binary_label"))
         self._image_label.setText(t("startup.image_label"))
         self._profile_label.setText(t("startup.profile_label"))
+        self._profile.setItemText(0, t("common.none"))
+        if self._profile.currentIndex() == 0:
+            self._profile.lineEdit().setText(t("common.none"))
         self._profile.lineEdit().setPlaceholderText(t("startup.profile_placeholder"))
         self._hint.setText(t("startup.hint"))
         self._buttons.button(QDialogButtonBox.Ok).setText(t("startup.load_btn"))
@@ -169,7 +201,7 @@ class StartupDialog(QDialog):
             return
         self.binary_path = binary
         self.image_path = image
-        self.manual_profile = self._profile.currentText().strip()
+        self.manual_profile = _combo_profile(self._profile)
         self.accept()
 
     def _refresh_local_profiles(self) -> None:
@@ -194,12 +226,19 @@ class StartupDialog(QDialog):
         self._profile_worker.start()
 
     def _on_local_profiles(self, profiles: list) -> None:
-        current = self._profile.currentText()
+        current = _combo_profile(self._profile)
+        self._profile.blockSignals(True)
+        _ensure_none_profile_item(self._profile)
         for prof in profiles:
             if self._profile.findText(prof) < 0:
                 self._profile.addItem(prof)
-        # Preserva lo que el analista hubiera escrito a mano.
-        self._profile.setCurrentText(current)
+        # Nunca auto-seleccionar un perfil de ``profiles/``: sólo se aplica
+        # si el analista lo elige explícitamente.
+        if current:
+            self._profile.setCurrentText(current)
+        else:
+            _select_none_profile(self._profile)
+        self._profile.blockSignals(False)
 
 
 class HashWorker(QThread):
@@ -282,11 +321,16 @@ class ImageReportWidget(QWidget):
         profile_row.addWidget(QLabel(t("report.active_profile")))
         self._profile_combo = QComboBox()
         self._profile_combo.setEditable(True)
+        self._profile_combo.setInsertPolicy(QComboBox.NoInsert)
+        self._profile_combo.addItem(t("common.none"))
         self._profile_combo.currentTextChanged.connect(self._on_profile_changed)
         profile_row.addWidget(self._profile_combo, 1)
         self._apply_btn = QPushButton(t("report.apply_profile"))
         self._apply_btn.clicked.connect(self._apply_profile)
         profile_row.addWidget(self._apply_btn)
+        self._clear_btn = QPushButton(t("report.clear_profile"))
+        self._clear_btn.clicked.connect(self._clear_profile)
+        profile_row.addWidget(self._clear_btn)
         layout.addLayout(profile_row)
 
     # --------------------------------------------------------------- arranque --
@@ -336,35 +380,49 @@ class ImageReportWidget(QWidget):
     def _populate_profiles(self) -> None:
         self._profile_combo.blockSignals(True)
         self._profile_combo.clear()
+        self._profile_combo.addItem(t("common.none"))
         if self._runner.profile:
             self._profile_combo.addItem(self._runner.profile)
         for prof in self._profile_info.suggested_profiles:
             if self._profile_combo.findText(prof) < 0:
                 self._profile_combo.addItem(prof)
-        if self._profile_combo.count() == 0 and self._profile_info.selected_profile:
+        if self._profile_combo.count() == 1 and self._profile_info.selected_profile:
             self._profile_combo.addItem(self._profile_info.selected_profile)
         # Añade los perfiles locales (carpeta ``profiles/``) ya conocidos.
         for prof in self._local_profiles:
             if self._profile_combo.findText(prof) < 0:
                 self._profile_combo.addItem(prof)
         self._profile_combo.blockSignals(False)
-        # Asegura que el runner tenga un perfil si se detectó alguno.
-        if not self._runner.profile and self._profile_info.selected_profile:
-            self._runner.profile = self._profile_info.selected_profile
-            self._profile_combo.setCurrentText(self._profile_info.selected_profile)
+        # El perfil del arranque (si el usuario lo eligió) manda. Si no hay,
+        # auto-aplica sólo sugerencias de imageinfo, nunca un perfil custom
+        # de la carpeta ``profiles/``.
+        suggested = self._profile_info.selected_profile
+        if self._runner.profile:
+            self._profile_info.selected_profile = self._runner.profile
+            self._profile_combo.setCurrentText(self._runner.profile)
+        elif suggested and suggested not in self._local_profiles:
+            self._runner.profile = suggested
+            self._profile_combo.setCurrentText(suggested)
+        else:
+            if suggested and suggested in self._local_profiles:
+                self._profile_info.selected_profile = None
+            _select_none_profile(self._profile_combo)
 
     def _on_local_profiles(self, profiles: list) -> None:
         """Incorpora al desplegable los perfiles de la carpeta ``profiles/``."""
         self._local_profiles = profiles or []
         if not self._local_profiles:
             return
-        current = self._profile_combo.currentText()
+        current = _combo_profile(self._profile_combo) or (self._runner.profile or "")
         self._profile_combo.blockSignals(True)
+        _ensure_none_profile_item(self._profile_combo)
         for prof in self._local_profiles:
             if self._profile_combo.findText(prof) < 0:
                 self._profile_combo.addItem(prof)
         if current:
             self._profile_combo.setCurrentText(current)
+        else:
+            _select_none_profile(self._profile_combo)
         self._profile_combo.blockSignals(False)
         audit_log.log_action(
             "Perfiles locales cargados desde profiles/: " + ", ".join(self._local_profiles)
@@ -375,12 +433,24 @@ class ImageReportWidget(QWidget):
         pass
 
     def _apply_profile(self) -> None:
-        profile = self._profile_combo.currentText().strip()
-        if profile:
-            self._runner.profile = profile
-            self._profile_info.selected_profile = profile
-            audit_log.log_action(f"PERFIL aplicado: {profile}")
-            self._refresh_summary()
+        profile = _combo_profile(self._profile_combo)
+        if not profile:
+            self._clear_profile()
+            return
+        self._runner.profile = profile
+        self._profile_info.selected_profile = profile
+        audit_log.log_action(f"PERFIL aplicado: {profile}")
+        self._refresh_summary()
+
+    def _clear_profile(self) -> None:
+        """Quita el perfil activo (incluido uno custom ya aplicado)."""
+        self._runner.profile = None
+        self._profile_info.selected_profile = None
+        self._profile_combo.blockSignals(True)
+        _select_none_profile(self._profile_combo)
+        self._profile_combo.blockSignals(False)
+        audit_log.log_action("PERFIL personalizado quitado")
+        self._refresh_summary()
 
     # ---------------------------------------------------------------- resumen --
     def _refresh_summary(self) -> None:
