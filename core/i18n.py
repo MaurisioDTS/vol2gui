@@ -92,6 +92,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "report.hash_progress": {"es": "Calculando hashes... %p%", "en": "Computing hashes... %p%"},
     "report.hashes_done": {"es": "Hashes calculados", "en": "Hashes computed"},
     "report.running_imageinfo": {"es": "Ejecutando imageinfo...", "en": "Running imageinfo..."},
+    "report.waiting_imageinfo": {
+        "es": "Esperando la salida de imageinfo (la detección de SO/perfil aún no ha terminado)...",
+        "en": "Waiting for imageinfo output (OS/profile detection is not finished yet)...",
+    },
     "report.imageinfo_output": {"es": "Salida de imageinfo:", "en": "imageinfo output:"},
     "report.imageinfo_error": {
         "es": "Error al ejecutar imageinfo:\n{message}",

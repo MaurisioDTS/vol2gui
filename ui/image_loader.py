@@ -286,6 +286,11 @@ class ImageReportWidget(QWidget):
         self._profile_worker: Optional[ProfileListWorker] = None
         self._local_profiles: list = []
         self._profile_info = ProfileInfo()
+        self._hashes_done = False
+        self._imageinfo_done = False
+        self._image_logged = False
+        self._md5 = ""
+        self._sha256 = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -331,13 +336,21 @@ class ImageReportWidget(QWidget):
         self._clear_btn = QPushButton(t("report.clear_profile"))
         self._clear_btn.clicked.connect(self._clear_profile)
         profile_row.addWidget(self._clear_btn)
-        layout.addLayout(profile_row)
+        self._profile_row_widget = QWidget()
+        self._profile_row_widget.setLayout(profile_row)
+        self._profile_row_widget.hide()
+        layout.addWidget(self._profile_row_widget)
 
     # --------------------------------------------------------------- arranque --
     def start(self) -> None:
         """Lanza el cálculo de hashes y la ejecución de imageinfo."""
         self._md5 = ""
         self._sha256 = ""
+        self._hashes_done = False
+        self._imageinfo_done = False
+        self._image_logged = False
+        self._raw.setPlainText(t("report.waiting_imageinfo"))
+        self._refresh_summary()
 
         self._hash_worker = HashWorker(self._runner.image_path)
         self._hash_worker.progress.connect(self._hash_progress.setValue)
@@ -355,27 +368,48 @@ class ImageReportWidget(QWidget):
         self._profile_worker.finished_ok.connect(self._on_local_profiles)
         self._profile_worker.start()
 
+    def _finish_imageinfo(self) -> None:
+        """Cierra la escena de carga: imageinfo ya ha terminado (bien o mal)."""
+        self._imageinfo_done = True
+        self._info_progress.hide()
+        if self._hashes_done:
+            self._hash_progress.hide()
+        self._profile_row_widget.show()
+        self._maybe_log_image_loaded()
+
+    def _maybe_log_image_loaded(self) -> None:
+        """Registra la carga de la imagen sólo cuando hashes e imageinfo han acabado."""
+        if self._image_logged or not (self._hashes_done and self._imageinfo_done):
+            return
+        self._image_logged = True
+        audit_log.log_image_loaded(self._runner.image_path, self._md5, self._sha256)
+
     # ---------------------------------------------------------------- hashes --
     def _on_hashes(self, md5: str, sha256: str) -> None:
         self._md5 = md5
         self._sha256 = sha256
+        self._hashes_done = True
         self._hash_progress.setValue(100)
         self._hash_progress.setFormat(t("report.hashes_done"))
-        audit_log.log_image_loaded(self._runner.image_path, md5, sha256)
+        if self._imageinfo_done:
+            self._hash_progress.hide()
         self._refresh_summary()
+        self._maybe_log_image_loaded()
 
     # ------------------------------------------------------------- imageinfo --
     def _on_imageinfo(self, _plugin: str, output: str) -> None:
-        self._info_progress.hide()
         self._raw.setPlainText(output)
         self._profile_info = detect_from_imageinfo(output)
         self._populate_profiles()
+        self._finish_imageinfo()
         self._refresh_summary()
         self.profile_detected.emit(self._profile_info)
 
     def _on_info_failed(self, _plugin: str, message: str) -> None:
-        self._info_progress.hide()
         self._raw.setPlainText(t("report.imageinfo_error", message=message))
+        self._finish_imageinfo()
+        self._refresh_summary()
+        self.profile_detected.emit(self._profile_info)
 
     def _populate_profiles(self) -> None:
         self._profile_combo.blockSignals(True)
@@ -454,16 +488,20 @@ class ImageReportWidget(QWidget):
 
     # ---------------------------------------------------------------- resumen --
     def _refresh_summary(self) -> None:
-        parsed = parse_imageinfo(self._profile_info.raw_imageinfo)
         computing = t("report.computing")
         image_label = t("report.summary_image")
         lines = [
             f"{image_label:<14}: {self._runner.image_path}",
-            f"{'MD5':<14}: {getattr(self, '_md5', '') or computing}",
-            f"{'SHA256':<14}: {getattr(self, '_sha256', '') or computing}",
+            f"{'MD5':<14}: {self._md5 or computing}",
+            f"{'SHA256':<14}: {self._sha256 or computing}",
             "",
-            profile_summary(self._profile_info),
         ]
+        if not self._imageinfo_done:
+            lines.append(t("report.waiting_imageinfo"))
+            self._summary.setText("\n".join(lines))
+            return
+        parsed = parse_imageinfo(self._profile_info.raw_imageinfo)
+        lines.append(profile_summary(self._profile_info))
         for key in ("Image date and time", "Image local date and time", "Number of Processors", "KDBG"):
             if key in parsed:
                 lines.append(f"{key}: {parsed[key]}")
