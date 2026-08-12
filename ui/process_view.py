@@ -33,6 +33,7 @@ from core.i18n import t
 from core.parser import parse_pstree, parse_table
 from core.profile import OSType
 from core.runner import PluginWorker, VolatilityRunner
+from ui.widgets.table_context import enable_cell_copy_menu
 from utils import audit_log
 
 # Mapeo de plugins por SO. En "detail" se guarda la clave i18n de la etiqueta
@@ -119,6 +120,7 @@ class ProcessView(QWidget):
         self._pslist_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._pslist_table.setSortingEnabled(True)
         self._pslist_table.doubleClicked.connect(self._on_table_double_click)
+        enable_cell_copy_menu(self._pslist_table)
         self._tabs.addTab(self._pslist_table, "PSList")
 
         # --- PStree (árbol) ---

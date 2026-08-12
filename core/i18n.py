@@ -33,6 +33,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "common.error_in_plugin": {"es": "Error en {plugin}", "en": "Error in {plugin}"},
     "common.all_files": {"es": "Todos los archivos (*)", "en": "All files (*)"},
     "common.plugin_output": {"es": "Salida del plugin", "en": "Plugin output"},
+    "common.copy": {"es": "Copiar", "en": "Copy"},
 
     # --------------------------------------------------------------- arranque --
     "app.start_error_title": {"es": "Error al iniciar", "en": "Startup error"},

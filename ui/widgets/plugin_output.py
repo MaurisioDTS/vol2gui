@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
 from core.i18n import t
 from core.parser import parse_table
 from core.runner import PluginWorker, VolatilityRunner
+from ui.widgets.table_context import enable_cell_copy_menu
 from utils import audit_log, export
 
 
@@ -107,6 +108,7 @@ class PluginOutputWidget(QWidget):
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        enable_cell_copy_menu(self._table)
         layout.addWidget(self._table, 1)
 
     # ------------------------------------------------------------- ejecución --
