@@ -18,7 +18,7 @@ import shutil
 import tempfile
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QModelIndex
 from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -29,6 +29,8 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QSplitter,
     QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -118,6 +120,40 @@ def _build_dump_extra(config: Dict, identifier: str, output_path: str) -> List[s
     ]
 
 
+class _IndentedNameColumnDelegate(QStyledItemDelegate):
+    """Replica en la columna de nombre la sangría jerárquica de la columna del árbol."""
+
+    def __init__(self, tree: QTreeWidget) -> None:
+        super().__init__(tree)
+        self._tree = tree
+
+    @staticmethod
+    def _depth(index: QModelIndex) -> int:
+        depth = 0
+        parent = index.parent()
+        while parent.isValid():
+            depth += 1
+            parent = parent.parent()
+        return depth
+
+    def _indent_px(self, index: QModelIndex) -> int:
+        return self._depth(index) * self._tree.indentation()
+
+    def paint(self, painter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        indent = self._indent_px(index)
+        if indent:
+            opt = QStyleOptionViewItem(option)
+            opt.rect = opt.rect.adjusted(indent, 0, 0, 0)
+            super().paint(painter, opt, index)
+        else:
+            super().paint(painter, option, index)
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex):
+        size = super().sizeHint(option, index)
+        size.setWidth(size.width() + self._indent_px(index))
+        return size
+
+
 class FilesystemView(QWidget):
     """Árbol navegable de ficheros con extracción bajo demanda."""
 
@@ -184,6 +220,7 @@ class FilesystemView(QWidget):
         self._tree.setHeaderLabels(
             [t("fs.col_identifier"), t("fs.col_name"), t("fs.col_size"), t("fs.col_modified")]
         )
+        self._tree.setItemDelegateForColumn(_COL_NAME, _IndentedNameColumnDelegate(self._tree))
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
